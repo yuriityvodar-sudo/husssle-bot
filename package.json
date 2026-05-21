@@ -1,1 +1,1 @@
-{"scripts":{"start":"node bot.js"},"dependencies":{"node-telegram-bot-api":"^0.67.0"}}
+{"scripts":{"start":"node bot.js"},"dependencies":{"firebase-admin":"^13.10.0","node-telegram-bot-api":"^0.67.0"}}
