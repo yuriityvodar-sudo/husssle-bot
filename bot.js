@@ -739,7 +739,9 @@ async function acceptApplicant(chatId, posterId, jobId, workerId) {
 async function updateChannelPost(job) {
   if (!job.channelMsgId) return;
   const text = formatChannelPost(job);
-  if (job.photos && job.photos.length > 0) {
+  // For multi-photo jobs, channelMsgId is a text message (the one with the button)
+  // For single photo or no photo, it's the photo/text message
+  if (job.photos && job.photos.length === 1) {
     bot.editMessageCaption(text, { chat_id: CHANNEL_ID, message_id: job.channelMsgId, parse_mode: 'Markdown' }).catch(() => {});
   } else {
     bot.editMessageText(text, { chat_id: CHANNEL_ID, message_id: job.channelMsgId, parse_mode: 'Markdown' }).catch(() => {});
