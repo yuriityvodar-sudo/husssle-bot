@@ -208,17 +208,37 @@ bot.on('callback_query', async (query) => {
     const apps = await getUserApplications(userId);
     if (!apps.length) {
       bot.sendMessage(chatId,
-        `📬 *Your Applications*\n\nYou haven't applied to any hustles yet.`,
+        `📬 *My Work*\n\nYou haven't applied to any hustles yet.`,
         { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '📋 Browse hustles', callback_data: 'browse' }]] } }
       );
       return;
     }
-    let text = `📬 *Your Applications* (${apps.length})\n\n`;
-    for (const app of apps) {
-      const statusLabel = app.status === 'accepted' ? '✅ Accepted' : app.status === 'rejected' ? '❌ Rejected' : '⏳ Pending';
-      text += `• *${app.jobTitle}*\nKES ${app.jobPay} · ${app.jobLocation}\n${statusLabel}\n\n`;
+
+    const active   = apps.filter(a => a.status === 'accepted');
+    const pending  = apps.filter(a => a.status === 'pending');
+    const rejected = apps.filter(a => a.status === 'rejected');
+
+    let text = '📬 *My Work*\n\n';
+
+    if (active.length) {
+      text += '━━━━━━━━━━━━━━━\n🚨 *ACTIVE JOB* 🚨\n━━━━━━━━━━━━━━━\n';
+      active.forEach(a => {
+        text += `🔨 *${a.jobTitle}*\n💰 KES ${a.jobPay} · 📍 ${a.jobLocation}\n\n`;
+      });
     }
-    bot.sendMessage(chatId, text, { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '← Menu', callback_data: 'menu_back' }]] } });
+
+    if (pending.length) {
+      text += `⏳ *Pending (${pending.length})*\n`;
+      pending.forEach(a => { text += `• ${a.jobTitle} · KES ${a.jobPay}\n`; });
+      text += '\n';
+    }
+
+    if (rejected.length) {
+      text += `❌ *Not selected (${rejected.length})*\n`;
+      rejected.forEach(a => { text += `• ${a.jobTitle}\n`; });
+    }
+
+    bot.sendMessage(chatId, text, { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '📋 Browse more', callback_data: 'browse' }], [{ text: '← Menu', callback_data: 'menu_back' }]] } });
     return;
   }
 
@@ -661,10 +681,15 @@ async function acceptApplicant(chatId, posterId, jobId, workerId) {
     { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '✅ Mark as Done later', callback_data: `manage_job_${jobId}` }]] } }
   );
 
-  bot.sendMessage(workerId,
-    `🎉 *You got the hustle!*\n\nJob: *${job.title}*\nPay: KES ${job.pay} · ${job.location}\n\n📱 Customer: *${posterData.name}*\nPhone: *${posterData.phone || 'N/A'}*\n\nThey will contact you. Good luck! 💪`,
-    { parse_mode: 'Markdown' }
+  const workerMsg = await bot.sendMessage(workerId,
+    `━━━━━━━━━━━━━━━\n🚨 *YOU GOT THE HUSTLE!* 🚨\n━━━━━━━━━━━━━━━\n\n🔨 *${job.title}*\n💰 KES ${job.pay}\n📍 ${job.location}\n\n📱 Customer: *${posterData.name}*\nPhone: *${posterData.phone || 'N/A'}*\n\nThey will contact you to arrange. Good luck! 💪\n\n_Go to My Work to track this job_`,
+    { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '📬 My Work', callback_data: 'my_applications' }]] } }
   ).catch(() => {});
+
+  // Pin the message in the worker's chat
+  if (workerMsg) {
+    bot.pinChatMessage(workerId, workerMsg.message_id).catch(() => {});
+  }
 
   apps.filter(a => a.workerId !== workerId).forEach(a => {
     bot.sendMessage(a.workerId,
