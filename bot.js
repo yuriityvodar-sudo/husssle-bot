@@ -142,7 +142,22 @@ bot.onText(/\/start(?:\s(.+))?/, async (msg, match) => {
   );
 });
 
-bot.onText(/\/menu/, (msg) => {
+bot.onText(/\/work/, (msg) => {
+  bot.emit('callback_query', {
+    message: { chat: { id: msg.chat.id }, message_id: 0 },
+    from: msg.from,
+    id: '0',
+    data: 'my_applications'
+  });
+});
+
+bot.onText(/\/jobs/, (msg) => {
+  showJobList(msg.chat.id);
+});
+
+bot.onText(/\/post/, (msg) => {
+  startPostFlow(msg.chat.id, msg.from.id);
+});
   bot.sendMessage(msg.chat.id, 'Main menu:', { reply_markup: mainMenu() });
 });
 
