@@ -537,8 +537,8 @@ async function publishJob(chatId, userId, user, draft) {
       type: 'photo', media: photoId,
       ...(i === 0 ? { caption, parse_mode: 'Markdown' } : {})
     }));
-    const msgs = await bot.sendMediaGroup(CHANNEL_ID, mediaGroup).catch(e => console.log('Channel error:', e.message));
-    if (msgs) channelMsg = msgs[0];
+    await bot.sendMediaGroup(CHANNEL_ID, mediaGroup).catch(e => console.log('Channel error:', e.message));
+    channelMsg = await bot.sendMessage(CHANNEL_ID, '👆 See photos above', { reply_markup: keyboard }).catch(e => console.log('Channel error:', e.message));
   }
 
   if (channelMsg) {
