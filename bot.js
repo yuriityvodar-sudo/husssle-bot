@@ -9,6 +9,7 @@ const path         = require('path');
 
 // ─── Firebase init ────────────────────────────────────────────────────────────
 let serviceAccount;
+console.log('ENV CHECK:', process.env.FIREBASE_CREDENTIALS ? 'FOUND' : 'NOT FOUND');
 if (process.env.FIREBASE_CREDENTIALS) {
   serviceAccount = JSON.parse(process.env.FIREBASE_CREDENTIALS);
 } else {
