@@ -231,12 +231,15 @@ bot.on('callback_query', async (query) => {
     const rejected = apps.filter(a => a.status === 'rejected');
 
     let text = '📬 *My Work*\n\n';
+    const buttons = [];
 
     if (active.length) {
-      text += '━━━━━━━━━━━━━━━\n🚨 *ACTIVE JOB* 🚨\n━━━━━━━━━━━━━━━\n';
+      text += '━━━━━━━━━━━━━━━\n🚨 *ACTIVE JOBS* 🚨\n━━━━━━━━━━━━━━━\n\n';
       active.forEach(a => {
-        text += `🔨 *${a.jobTitle}*\n💰 KES ${a.jobPay} · 📍 ${a.jobLocation}\n\n`;
+        text += `🔨 *${a.jobTitle}* · KES ${a.jobPay}\n`;
+        buttons.push([{ text: `🔨 ${a.jobTitle} — KES ${a.jobPay}`, callback_data: `worker_job_${a.jobId}` }]);
       });
+      text += '\n';
     }
 
     if (pending.length) {
@@ -250,7 +253,10 @@ bot.on('callback_query', async (query) => {
       rejected.forEach(a => { text += `• ${a.jobTitle}\n`; });
     }
 
-    bot.sendMessage(chatId, text, { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '📋 Browse more', callback_data: 'browse' }], [{ text: '← Menu', callback_data: 'menu_back' }]] } });
+    buttons.push([{ text: '📋 Browse more', callback_data: 'browse' }]);
+    buttons.push([{ text: '← Menu', callback_data: 'menu_back' }]);
+
+    bot.sendMessage(chatId, text, { parse_mode: 'Markdown', reply_markup: { inline_keyboard: buttons } });
     return;
   }
 
@@ -273,6 +279,25 @@ bot.on('callback_query', async (query) => {
 
   if (data.startsWith('manage_job_')) {
     showManageJob(chatId, userId, data.replace('manage_job_', ''));
+    return;
+  }
+
+  if (data.startsWith('worker_job_')) {
+    const jobId = data.replace('worker_job_', '');
+    const job   = await getJob(jobId);
+    if (!job) { bot.sendMessage(chatId, '❌ Job not found.'); return; }
+    const poster = await db.collection('users').doc(String(job.posterId)).get();
+    const posterData = poster.exists ? poster.data() : { name: 'Customer', phone: 'N/A' };
+    bot.sendMessage(chatId,
+      `━━━━━━━━━━━━━━━\n🚨 *ACTIVE JOB* 🚨\n━━━━━━━━━━━━━━━\n\n` +
+      `🔨 *${job.title}*\n` +
+      `💰 KES ${job.pay}\n` +
+      `📍 ${job.location}\n\n` +
+      `👤 Customer: *${posterData.name}*\n` +
+      `📱 Phone: *${posterData.phone || 'N/A'}*\n\n` +
+      `_Contact them to coordinate. When done, ask them to mark the job as complete._`,
+      { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '← My Work', callback_data: 'my_applications' }]] } }
+    );
     return;
   }
 
