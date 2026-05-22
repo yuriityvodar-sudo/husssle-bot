@@ -55,7 +55,8 @@ function formatChannelPost(job) {
     `💼 *${job.title}*\n\n` +
     `📝 ${job.description}\n\n` +
     `💰 *KES ${job.pay}*\n` +
-    `📍 ${job.location}\n\n` +
+    `📍 ${job.location}\n` +
+    `${job.urgency || '⏰ Flexible'}\n\n` +
     `👤 Posted by: ${job.posterName} — ${getRatingStars(job.posterRating || 0, job.posterRatingCount || 0)}\n` +
     `📌 Status: ${getJobStatus(job.status)}\n` +
     `🆔 Job: #${job.id}`
@@ -380,6 +381,28 @@ bot.on('callback_query', async (query) => {
     return;
   }
 
+  if (data.startsWith('urgency_')) {
+    const s = getSession(userId);
+    if (s.step !== 'post_urgency') return;
+    const map = {
+      urgency_asap:     '⚡ ASAP',
+      urgency_week:     '📅 This week',
+      urgency_month:    '🗓️ This month',
+      urgency_flexible: '⏰ Flexible',
+    };
+    s.draft.urgency = map[data] || '⏰ Flexible';
+    s.draft.photos = [];
+    s.step = 'post_photo';
+    bot.sendMessage(chatId,
+      `✅ *Availability:* ${s.draft.urgency}\n\n📷 *Send photos of the job!*\n\nYou can send up to 5 photos one by one.\nWhen done tap *DONE* or tap SKIP for no photos.`,
+      { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [
+        [{ text: '✅ DONE — post now',  callback_data: 'post_photos_done' }],
+        [{ text: 'SKIP — no photos',   callback_data: 'post_skip_photo' }],
+      ]}}
+    );
+    return;
+  }
+
   if (data === 'post_skip_photo' || data === 'post_photos_done') {
     const s = getSession(userId);
     if (s.step !== 'post_photo') return;
@@ -466,13 +489,14 @@ bot.on('message', async (msg) => {
   if (s.step === 'post_location') {
     if (!text) { bot.sendMessage(chatId, '⚠️ Please type a location.'); return; }
     s.draft.location = text;
-    s.draft.photos = [];
-    s.step = 'post_photo';
+    s.step = 'post_urgency';
     bot.sendMessage(chatId,
-      `✅ *Location:* ${text}\n\n📷 *Send photos of the job!*\n\nYou can send up to 5 photos one by one.\nWhen done tap *DONE* or tap SKIP for no photos.`,
+      `✅ *Location:* ${text}\n\n📅 *When do you need this done?*`,
       { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [
-        [{ text: '✅ DONE — post now',      callback_data: 'post_photos_done' }],
-        [{ text: 'SKIP — no photos',        callback_data: 'post_skip_photo' }],
+        [{ text: '⚡ ASAP — today or tomorrow', callback_data: 'urgency_asap' }],
+        [{ text: '📅 This week',                callback_data: 'urgency_week' }],
+        [{ text: '🗓️ This month',               callback_data: 'urgency_month' }],
+        [{ text: '⏰ Flexible — no rush',        callback_data: 'urgency_flexible' }],
       ]}}
     );
     return;
@@ -567,6 +591,7 @@ async function publishJob(chatId, userId, user, draft) {
     posterRating:     user.rating || 0,
     posterRatingCount: user.ratingCount || 0,
     status:           'open',
+    urgency:          draft.urgency || '⏰ Flexible',
     applicantCount:   0,
     channelMsgId:     null,
     createdAt:        Date.now(),
