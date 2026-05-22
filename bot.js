@@ -137,6 +137,17 @@ bot.onText(/\/start(?:\s(.+))?/, async (msg, match) => {
     return;
   }
 
+  // Ask for phone on first use
+  if (!user.phone) {
+    const s = getSession(msg.from.id);
+    s.step = 'collect_phone_for_post';
+    bot.sendMessage(msg.chat.id,
+      `👋 *Karibu Husssle!*\n\nThe hustle marketplace for Nairobi.\nFind work or get work done. Simple.\n\n📱 First, what's your phone number? This is needed to connect you with customers/workers.`,
+      { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '❌ Skip for now', callback_data: 'cancel' }]] } }
+    );
+    return;
+  }
+
   bot.sendMessage(msg.chat.id,
     `👋 *Karibu Husssle!*\n\nThe hustle marketplace for Nairobi.\nFind work or get work done. Simple.\n\nWhat do you want to do?`,
     { parse_mode: 'Markdown', reply_markup: mainMenu() }
