@@ -508,14 +508,11 @@ bot.on('message', async (msg) => {
       s.draft.photos.push(msg.photo[msg.photo.length - 1].file_id);
       const count = s.draft.photos.length;
       if (count >= 5) {
-        bot.sendMessage(chatId, `✅ ${count} photos added! Posting your hustle now...`);
+        bot.sendMessage(chatId, `✅ 5 photos added! Posting your hustle now...`);
         publishJob(chatId, userId, user, s.draft);
         clearSession(userId);
       } else {
-        bot.sendMessage(chatId,
-          `✅ Photo ${count} added! Send another or tap DONE.`,
-          { reply_markup: { inline_keyboard: [[{ text: `✅ DONE (${count} photo${count>1?'s':''})`, callback_data: 'post_photos_done' }]] } }
-        );
+        bot.sendMessage(chatId, `✅ Photo ${count} added! Send another photo or tap DONE when ready.`);
       }
     } else if (text.toLowerCase() === 'skip') {
       s.draft.photos = [];
