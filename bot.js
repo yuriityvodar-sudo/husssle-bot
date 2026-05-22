@@ -385,10 +385,10 @@ bot.on('callback_query', async (query) => {
     const s = getSession(userId);
     if (s.step !== 'post_urgency') return;
     const map = {
-      urgency_asap:     '⚡ ASAP',
-      urgency_week:     '📅 This week',
-      urgency_month:    '🗓️ This month',
-      urgency_flexible: '⏰ Flexible',
+      urgency_asap:     '⏰ Deadline: ASAP (today/tomorrow)',
+      urgency_week:     '⏰ Deadline: This week',
+      urgency_month:    '⏰ Deadline: This month',
+      urgency_flexible: '⏰ Deadline: Flexible — no rush',
     };
     s.draft.urgency = map[data] || '⏰ Flexible';
     s.draft.photos = [];
