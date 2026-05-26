@@ -3,6 +3,8 @@
  * Telegram job marketplace for Nairobi
  */
 
+const { t } = require('./i18n');
+
 const TelegramBot  = require('node-telegram-bot-api');
 const admin        = require('firebase-admin');
 const path         = require('path');
@@ -37,6 +39,11 @@ function clearSession(userId) {
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+function getLang(from) {
+  const code = from && from.language_code ? from.language_code.split('-')[0] : 'en';
+  return ['uk', 'en'].includes(code) ? code : 'en';
+}
+
 function getRatingStars(rating, ratingCount) {
   if (!ratingCount) return '⭐ New';
   const avg = (rating / ratingCount).toFixed(1);
@@ -63,13 +70,13 @@ function formatChannelPost(job) {
   );
 }
 
-function mainMenu() {
+function mainMenu(lang = 'en') {
   return {
     inline_keyboard: [
-      [{ text: '📋 Browse hustles',  callback_data: 'browse' }],
-      [{ text: '➕ Post a hustle',   callback_data: 'post_start' }],
-      [{ text: '📬 My applications', callback_data: 'my_applications' }],
-      [{ text: '📌 My posted jobs',  callback_data: 'my_jobs' }],
+      [{ text: t(lang, 'browse'),          callback_data: 'browse' }],
+      [{ text: t(lang, 'post'),            callback_data: 'post_start' }],
+      [{ text: t(lang, 'my_applications'), callback_data: 'my_applications' }],
+      [{ text: t(lang, 'my_jobs'),         callback_data: 'my_jobs' }],
     ]
   };
 }
@@ -86,12 +93,20 @@ async function getUser(from) {
       phone:       null,
       rating:      0,
       ratingCount: 0,
+      lang:        getLang(from),
       createdAt:   Date.now(),
     };
     await ref.set(user);
     return user;
   }
-  return doc.data();
+  const data = doc.data();
+  // update lang if changed
+  const currentLang = getLang(from);
+  if (data.lang !== currentLang) {
+    await ref.update({ lang: currentLang });
+    data.lang = currentLang;
+  }
+  return data;
 }
 
 async function updateUser(userId, data) {
@@ -137,20 +152,22 @@ bot.onText(/\/start(?:\s(.+))?/, async (msg, match) => {
     return;
   }
 
+  const lang = getLang(msg.from);
+
   // Ask for phone on first use
   if (!user.phone) {
     const s = getSession(msg.from.id);
     s.step = 'collect_phone_for_post';
     bot.sendMessage(msg.chat.id,
-      `👋 *Karibu Husssle!*\n\nThe hustle marketplace for Nairobi.\nFind work or get work done. Simple.\n\n📱 First, what's your phone number? This is needed to connect you with customers/workers.`,
-      { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '❌ Skip for now', callback_data: 'cancel' }]] } }
+      t(lang, 'welcome'),
+      { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: t(lang, 'cancel_btn'), callback_data: 'cancel' }]] } }
     );
     return;
   }
 
   bot.sendMessage(msg.chat.id,
-    `👋 *Karibu Husssle!*\n\nThe hustle marketplace for Nairobi.\nFind work or get work done. Simple.\n\nWhat do you want to do?`,
-    { parse_mode: 'Markdown', reply_markup: mainMenu() }
+    t(lang, 'welcome_back'),
+    { parse_mode: 'Markdown', reply_markup: mainMenu(lang) }
   );
 });
 
@@ -538,13 +555,14 @@ bot.on('message', async (msg) => {
 
 // ─── Flow functions ───────────────────────────────────────────────────────────
 
-function startPostFlow(chatId, userId) {
+function startPostFlow(chatId, userId, lang = 'en') {
   const s = getSession(userId);
   s.step  = 'post_title';
   s.draft = {};
+  s.lang  = lang;
   bot.sendMessage(chatId,
-    `➕ *Post a Hustle*\n\nStep 1 of 4\n\n*What's the job title?*\n_e.g. Wall painting, Laptop repair, Catering_`,
-    { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '❌ Cancel', callback_data: 'cancel' }]] } }
+    t(lang, 'post_title'),
+    { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: t(lang, 'cancel_btn'), callback_data: 'cancel' }]] } }
   );
 }
 
@@ -614,7 +632,10 @@ async function publishJob(chatId, userId, user, draft) {
 
   const caption  = formatChannelPost(job);
   const applyUrl = `https://t.me/nbohussle_bot?start=apply_${jobId}`;
-  const keyboard = { inline_keyboard: [[{ text: "✋ I'll do it!", url: applyUrl }]] };
+  const keyboard = { inline_keyboard: [
+    [{ text: "✋ I'll do it!", url: applyUrl }],
+    [{ text: '💬 Discuss', url: 'https://t.me/hussslegroup' }],
+  ]};
 
   let channelMsg;
   if (job.photos.length === 0) {
