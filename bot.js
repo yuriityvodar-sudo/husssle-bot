@@ -24,6 +24,7 @@ const db = admin.firestore();
 // ─── Bot init ─────────────────────────────────────────────────────────────────
 const BOT_TOKEN  = process.env.BOT_TOKEN || 'YOUR_BOT_TOKEN_HERE';
 const CHANNEL_ID = '@husssleke';
+const ADMIN_ID   = 889114803;
 const bot        = new TelegramBot(BOT_TOKEN, { polling: true });
 
 // ─── In-memory session store (sessions don't need to persist) ─────────────────
@@ -194,6 +195,10 @@ bot.on('callback_query', async (query) => {
   await bot.answerCallbackQuery(query.id).catch(() => {});
 
   const user = await getUser(query.from);
+  if (user.banned && userId !== ADMIN_ID) {
+    bot.sendMessage(chatId, '🚫 You have been banned from Husssle.\n\nIf you think this is a mistake, contact support.');
+    return;
+  }
 
   if (data === 'browse') { showJobList(chatId); return; }
 
@@ -317,6 +322,32 @@ bot.on('callback_query', async (query) => {
 
   if (data.startsWith('manage_job_')) {
     showManageJob(chatId, userId, data.replace('manage_job_', ''));
+    return;
+  }
+
+  if (data.startsWith('ban_user_')) {
+    if (userId !== ADMIN_ID) return;
+    const targetId = parseInt(data.replace('ban_user_', ''));
+    const targetDoc = await db.collection('users').doc(String(targetId)).get();
+    const targetName = targetDoc.exists ? targetDoc.data().name : 'Unknown';
+    bot.sendMessage(chatId,
+      `🚫 *Ban ${targetName}?*\n\nThis will prevent them from using the bot.`,
+      { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [
+        [{ text: '✅ Yes, ban them', callback_data: `confirm_ban_${targetId}` }],
+        [{ text: '❌ Cancel', callback_data: 'cancel' }],
+      ]}}
+    );
+    return;
+  }
+
+  if (data.startsWith('confirm_ban_')) {
+    if (userId !== ADMIN_ID) return;
+    const targetId = parseInt(data.replace('confirm_ban_', ''));
+    await db.collection('users').doc(String(targetId)).update({ banned: true });
+    const targetDoc = await db.collection('users').doc(String(targetId)).get();
+    const targetName = targetDoc.exists ? targetDoc.data().name : 'Unknown';
+    bot.sendMessage(targetId, '🚫 You have been banned from Husssle.\n\nIf you think this is a mistake, contact support.').catch(() => {});
+    bot.sendMessage(chatId, `✅ *${targetName}* has been banned.`, { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '← Menu', callback_data: 'menu_back' }]] } });
     return;
   }
 
@@ -777,6 +808,7 @@ async function showJobDetail(chatId, userId, jobId) {
   if (!isOwner && !alreadyApplied && job.status === 'open') buttons.push([{ text: "✋ I'll do it!", callback_data: `apply_${jobId}` }]);
   if (alreadyApplied) buttons.push([{ text: '✅ Already applied', callback_data: 'noop' }]);
   if (isOwner)        buttons.push([{ text: '⚙️ Manage this hustle', callback_data: `manage_job_${jobId}` }]);
+  if (userId === ADMIN_ID && !isOwner) buttons.push([{ text: `🔐 Ban poster (${job.posterName})`, callback_data: `ban_user_${job.posterId}` }]);
   buttons.push([{ text: '← Back to list', callback_data: 'browse' }]);
 
   const text =
