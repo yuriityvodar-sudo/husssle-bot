@@ -308,6 +308,53 @@ bot.on('callback_query', async (query) => {
     return;
   }
 
+  if (data.startsWith('delete_job_')) {
+    const jobId = data.replace('delete_job_', '');
+    const job = await getJob(jobId);
+    if (!job || job.posterId !== userId) return;
+    // Ask for confirmation
+    bot.sendMessage(chatId,
+      `🗑️ *Delete "${job.title}"?*\n\nThis will remove the job from the channel and database. This cannot be undone.`,
+      { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [
+        [{ text: '✅ Yes, delete it', callback_data: `confirm_delete_${jobId}` }],
+        [{ text: '❌ Cancel', callback_data: `manage_job_${jobId}` }],
+      ]}}
+    );
+    return;
+  }
+
+  if (data.startsWith('confirm_delete_')) {
+    const jobId = data.replace('confirm_delete_', '');
+    const job = await getJob(jobId);
+    if (!job || job.posterId !== userId) return;
+
+    // Notify accepted worker if job is taken
+    if (job.status === 'taken') {
+      const apps = await getJobApplications(jobId);
+      const acceptedApp = apps.find(a => a.status === 'accepted');
+      if (acceptedApp) {
+        bot.sendMessage(acceptedApp.workerId,
+          `⚠️ *Job Cancelled*\n\nThe job *${job.title}* (KES ${job.pay}) has been cancelled by the customer.\n\nSorry for the inconvenience. Keep hustling! 💪`,
+          { parse_mode: 'Markdown' }
+        ).catch(() => {});
+      }
+    }
+
+    // Delete channel message
+    if (job.channelMsgId) {
+      await bot.deleteMessage(CHANNEL_ID, job.channelMsgId).catch(() => {});
+    }
+    // Delete all applications
+    const apps = await getJobApplications(jobId);
+    for (const app of apps) {
+      await db.collection('applications').doc(`${jobId}_${app.workerId}`).delete().catch(() => {});
+    }
+    // Delete job from Firebase
+    await db.collection('jobs').doc(String(jobId)).delete();
+    bot.sendMessage(chatId, '✅ Job deleted successfully.', { reply_markup: { inline_keyboard: [[{ text: '← My jobs', callback_data: 'my_jobs' }]] } });
+    return;
+  }
+
   if (data.startsWith('worker_job_')) {
     const jobId = data.replace('worker_job_', '');
     const job   = await getJob(jobId);
@@ -704,6 +751,7 @@ async function showManageJob(chatId, userId, jobId) {
   const buttons = [];
   if (apps.length)        buttons.push([{ text: `👥 View applicants (${apps.length})`, callback_data: `view_applicants_${jobId}` }]);
   if (job.status === 'taken') buttons.push([{ text: '✅ Mark as Done', callback_data: `mark_done_${jobId}` }]);
+  if (job.status !== 'done') buttons.push([{ text: '🗑️ Delete this job', callback_data: `delete_job_${jobId}` }]);
   buttons.push([{ text: '← My jobs', callback_data: 'my_jobs' }]);
 
   bot.sendMessage(chatId,
