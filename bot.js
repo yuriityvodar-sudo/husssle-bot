@@ -3,8 +3,6 @@
  * Telegram job marketplace for Nairobi
  */
 
-const { t } = require('./i18n');
-
 const TelegramBot  = require('node-telegram-bot-api');
 const admin        = require('firebase-admin');
 const path         = require('path');
@@ -70,13 +68,13 @@ function formatChannelPost(job) {
   );
 }
 
-function mainMenu(lang = 'en') {
+function mainMenu() {
   return {
     inline_keyboard: [
-      [{ text: t(lang, 'browse'),          callback_data: 'browse' }],
-      [{ text: t(lang, 'post'),            callback_data: 'post_start' }],
-      [{ text: t(lang, 'my_applications'), callback_data: 'my_applications' }],
-      [{ text: t(lang, 'my_jobs'),         callback_data: 'my_jobs' }],
+      [{ text: '📋 Browse hustles',          callback_data: 'browse' }],
+      [{ text: '➕ Post a hustle',            callback_data: 'post_start' }],
+      [{ text: '📬 My applications', callback_data: 'my_applications' }],
+      [{ text: '📌 My posted jobs',         callback_data: 'my_jobs' }],
     ]
   };
 }
@@ -152,22 +150,21 @@ bot.onText(/\/start(?:\s(.+))?/, async (msg, match) => {
     return;
   }
 
-  const lang = getLang(msg.from);
 
   // Ask for phone on first use
   if (!user.phone) {
     const s = getSession(msg.from.id);
     s.step = 'collect_phone_for_post';
     bot.sendMessage(msg.chat.id,
-      t(lang, 'welcome'),
-      { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: t(lang, 'cancel_btn'), callback_data: 'cancel' }]] } }
+      '👋 *Karibu Husssle!*\n\nThe hustle marketplace for Nairobi.\nFind work or get work done. Simple.\n\n📱 First, what\'s your phone number?',
+      { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '❌ Cancel', callback_data: 'cancel' }]] } }
     );
     return;
   }
 
   bot.sendMessage(msg.chat.id,
-    t(lang, 'welcome_back'),
-    { parse_mode: 'Markdown', reply_markup: mainMenu(lang) }
+    '👋 *Karibu Husssle!*\n\nThe hustle marketplace for Nairobi.\nFind work or get work done. Simple.\n\nWhat do you want to do?',
+    { parse_mode: 'Markdown', reply_markup: mainMenu() }
   );
 });
 
@@ -555,14 +552,13 @@ bot.on('message', async (msg) => {
 
 // ─── Flow functions ───────────────────────────────────────────────────────────
 
-function startPostFlow(chatId, userId, lang = 'en') {
+function startPostFlow(chatId, userId) {
   const s = getSession(userId);
   s.step  = 'post_title';
   s.draft = {};
-  s.lang  = lang;
   bot.sendMessage(chatId,
-    t(lang, 'post_title'),
-    { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: t(lang, 'cancel_btn'), callback_data: 'cancel' }]] } }
+    '➕ *Post a Hustle*\n\nStep 1 of 4\n\n*What\'s the job title?*\n_e.g. Wall painting, Laptop repair, Catering_',
+    { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '❌ Cancel', callback_data: 'cancel' }]] } }
   );
 }
 
