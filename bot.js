@@ -628,10 +628,7 @@ async function publishJob(chatId, userId, user, draft) {
 
   const caption  = formatChannelPost(job);
   const applyUrl = `https://t.me/nbohussle_bot?start=apply_${jobId}`;
-  const keyboard = { inline_keyboard: [
-    [{ text: "✋ I'll do it!", url: applyUrl }],
-    [{ text: '💬 Discuss', url: 'https://t.me/hussslegroup' }],
-  ]};
+  const keyboard = { inline_keyboard: [[{ text: "✋ I'll do it!", url: applyUrl }]] };
 
   let channelMsg;
   if (job.photos.length === 0) {
