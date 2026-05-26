@@ -25,6 +25,23 @@ const db = admin.firestore();
 const BOT_TOKEN  = process.env.BOT_TOKEN || 'YOUR_BOT_TOKEN_HERE';
 const CHANNEL_ID = '@husssleke';
 const ADMIN_ID   = 889114803;
+
+const BANNED_WORDS = [
+  // Scam/Fraud
+  'scam', 'fraud', 'fake', 'cheat', 'steal', 'hack',
+  // Explicit/Adult
+  'sex', 'porn', 'nude', 'naked', 'escort', 'prostitut',
+  'onlyfans', 'adult', 'erotic', 'strip', 'hookup', 'sensual',
+  // Weapons/Drugs
+  'drug', 'cocaine', 'weed', 'gun', 'weapon', 'kill',
+  // Spam
+  'free money', 'guaranteed', 'get rich', 'bitcoin', 'crypto invest',
+];
+
+function containsBannedWords(text) {
+  const lower = text.toLowerCase();
+  return BANNED_WORDS.find(word => lower.includes(word)) || null;
+}
 const bot        = new TelegramBot(BOT_TOKEN, { polling: true });
 
 // ─── In-memory session store (sessions don't need to persist) ─────────────────
@@ -635,6 +652,11 @@ bot.on('message', async (msg) => {
 
   if (s.step === 'post_title') {
     if (!text) { bot.sendMessage(chatId, '⚠️ Please type a title.'); return; }
+    const bannedTitle = containsBannedWords(text);
+    if (bannedTitle) {
+      bot.sendMessage(chatId, `⚠️ Your title contains inappropriate content. Please rephrase.`);
+      return;
+    }
     s.draft.title = text;
     s.step = 'post_description';
     bot.sendMessage(chatId,
@@ -646,6 +668,11 @@ bot.on('message', async (msg) => {
 
   if (s.step === 'post_description') {
     if (!text) { bot.sendMessage(chatId, '⚠️ Please type a description.'); return; }
+    const bannedDesc = containsBannedWords(text);
+    if (bannedDesc) {
+      bot.sendMessage(chatId, `⚠️ Your description contains inappropriate content. Please rephrase.`);
+      return;
+    }
     s.draft.description = text;
     s.step = 'post_pay';
     bot.sendMessage(chatId,
