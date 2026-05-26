@@ -295,16 +295,68 @@ bot.on('callback_query', async (query) => {
       );
       return;
     }
-    const buttons = myJobs.map(j => ([{ text: `${getJobStatus(j.status)} ${j.title} — KES ${j.pay}`, callback_data: `manage_job_${j.id}` }]));
-    buttons.push([{ text: '← Menu', callback_data: 'menu_back' }]);
-    bot.sendMessage(chatId, `📌 *Your Posted Hustles* (${myJobs.length})\n\nTap a job to manage it:`,
-      { parse_mode: 'Markdown', reply_markup: { inline_keyboard: buttons } }
-    );
+
+    // Show each job with its action buttons directly
+    for (const j of myJobs) {
+      const apps = await getJobApplications(j.id);
+      const buttons = [];
+      if (apps.length)         buttons.push([{ text: `👥 Applicants (${apps.length})`, callback_data: `view_applicants_${j.id}` }]);
+      if (j.status === 'taken') buttons.push([{ text: '✅ Mark as Done', callback_data: `mark_done_${j.id}` }]);
+      if (j.status === 'taken') buttons.push([{ text: '🔄 Re-open', callback_data: `reopen_job_${j.id}` }]);
+      if (j.status === 'taken') buttons.push([{ text: '❌ Cancel', callback_data: `cancel_job_${j.id}` }]);
+      if (j.status !== 'done')  buttons.push([{ text: '🗑️ Delete', callback_data: `delete_job_${j.id}` }]);
+
+      await bot.sendMessage(chatId,
+        `${getJobStatus(j.status)} *${j.title}*\nKES ${j.pay} · ${j.location}\n${j.urgency || ''}\n👥 ${apps.length} applicant(s)`,
+        { parse_mode: 'Markdown', reply_markup: { inline_keyboard: buttons } }
+      );
+    }
+    bot.sendMessage(chatId, '─────', { reply_markup: { inline_keyboard: [[{ text: '← Menu', callback_data: 'menu_back' }]] } });
     return;
   }
 
   if (data.startsWith('manage_job_')) {
     showManageJob(chatId, userId, data.replace('manage_job_', ''));
+    return;
+  }
+
+  if (data.startsWith('reopen_job_')) {
+    const jobId = data.replace('reopen_job_', '');
+    const job = await getJob(jobId);
+    if (!job || job.posterId !== userId) return;
+    // Find accepted worker and notify them
+    const apps = await getJobApplications(jobId);
+    const acceptedApp = apps.find(a => a.status === 'accepted');
+    if (acceptedApp) {
+      await db.collection('applications').doc(`${jobId}_${acceptedApp.workerId}`).update({ status: 'rejected' });
+      bot.sendMessage(acceptedApp.workerId,
+        `ℹ️ *Job Update*\n\nThe job *${job.title}* has been re-opened by the customer. Your application has been cancelled.`,
+        { parse_mode: 'Markdown' }
+      ).catch(() => {});
+    }
+    await db.collection('jobs').doc(String(jobId)).update({ status: 'open' });
+    await updateChannelPost({ ...job, status: 'open' });
+    bot.sendMessage(chatId, "🔄 Job re-opened! It's back to Open status.", { reply_markup: { inline_keyboard: [[{ text: '← My jobs', callback_data: 'my_jobs' }]] } });
+    return;
+  }
+
+  if (data.startsWith('cancel_job_')) {
+    const jobId = data.replace('cancel_job_', '');
+    const job = await getJob(jobId);
+    if (!job || job.posterId !== userId) return;
+    // Notify accepted worker
+    const apps = await getJobApplications(jobId);
+    const acceptedApp = apps.find(a => a.status === 'accepted');
+    if (acceptedApp) {
+      await db.collection('applications').doc(`${jobId}_${acceptedApp.workerId}`).update({ status: 'rejected' });
+      bot.sendMessage(acceptedApp.workerId,
+        `⚠️ *Job Cancelled*\n\nThe job *${job.title}* (KES ${job.pay}) has been cancelled by the customer.\n\nSorry for the inconvenience. Keep hustling! 💪`,
+        { parse_mode: 'Markdown' }
+      ).catch(() => {});
+    }
+    await db.collection('jobs').doc(String(jobId)).update({ status: 'cancelled' });
+    await updateChannelPost({ ...job, status: 'cancelled' });
+    bot.sendMessage(chatId, '❌ Job cancelled. Worker has been notified.', { reply_markup: { inline_keyboard: [[{ text: '← My jobs', callback_data: 'my_jobs' }]] } });
     return;
   }
 
@@ -751,6 +803,8 @@ async function showManageJob(chatId, userId, jobId) {
   const buttons = [];
   if (apps.length)        buttons.push([{ text: `👥 View applicants (${apps.length})`, callback_data: `view_applicants_${jobId}` }]);
   if (job.status === 'taken') buttons.push([{ text: '✅ Mark as Done', callback_data: `mark_done_${jobId}` }]);
+  if (job.status === 'taken') buttons.push([{ text: '🔄 Re-open (worker disappeared)', callback_data: `reopen_job_${jobId}` }]);
+  if (job.status === 'taken') buttons.push([{ text: '❌ Cancel job (notify worker)', callback_data: `cancel_job_${jobId}` }]);
   if (job.status !== 'done') buttons.push([{ text: '🗑️ Delete this job', callback_data: `delete_job_${jobId}` }]);
   buttons.push([{ text: '← My jobs', callback_data: 'my_jobs' }]);
 
