@@ -185,6 +185,21 @@ bot.onText(/\/post/, (msg) => {
   startPostFlow(msg.chat.id, msg.from.id);
 });
 
+bot.onText(/\/banned/, async (msg) => {
+  if (msg.from.id !== ADMIN_ID) return;
+  const snap = await db.collection('users').where('banned', '==', true).get();
+  if (snap.empty) {
+    bot.sendMessage(msg.chat.id, '✅ No banned users.');
+    return;
+  }
+  const buttons = snap.docs.map(doc => {
+    const u = doc.data();
+    return [{ text: `🔓 Unban ${u.name} (${u.id})`, callback_data: `unban_user_${u.id}` }];
+  });
+  const text = `🚫 *Banned Users* (${snap.size})\n\nTap to unban:`;
+  bot.sendMessage(msg.chat.id, text, { parse_mode: 'Markdown', reply_markup: { inline_keyboard: buttons } });
+});
+
 // ─── Callback query handler ───────────────────────────────────────────────────
 bot.on('callback_query', async (query) => {
   const chatId = query.message.chat.id;
@@ -322,6 +337,17 @@ bot.on('callback_query', async (query) => {
 
   if (data.startsWith('manage_job_')) {
     showManageJob(chatId, userId, data.replace('manage_job_', ''));
+    return;
+  }
+
+  if (data.startsWith('unban_user_')) {
+    if (userId !== ADMIN_ID) return;
+    const targetId = parseInt(data.replace('unban_user_', ''));
+    await db.collection('users').doc(String(targetId)).update({ banned: false });
+    const targetDoc = await db.collection('users').doc(String(targetId)).get();
+    const targetName = targetDoc.exists ? targetDoc.data().name : 'Unknown';
+    bot.sendMessage(targetId, '✅ You have been unbanned from Husssle. Welcome back!').catch(() => {});
+    bot.sendMessage(chatId, `✅ *${targetName}* has been unbanned.`, { parse_mode: 'Markdown' });
     return;
   }
 
