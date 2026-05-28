@@ -12,7 +12,7 @@ let serviceAccount;
 if (process.env.FIREBASE_CREDENTIALS) {
   serviceAccount = JSON.parse(process.env.FIREBASE_CREDENTIALS);
 } else {
-  serviceAccount = require('./huse-19bfc-firebase-adminsdk-fbsvc-5ca265ab02.json');
+  serviceAccount = require('./huse-19bfc-firebase-adminsdk-fbsvc-f303cf85f0.json');
 }
 
 admin.initializeApp({
@@ -202,6 +202,27 @@ bot.onText(/\/post/, (msg) => {
   startPostFlow(msg.chat.id, msg.from.id);
 });
 
+bot.onText(/\/admin/, async (msg) => {
+  if (msg.from.id !== ADMIN_ID) return;
+  const snap = await db.collection('jobs')
+    .where('status', 'in', ['done', 'cancelled'])
+    .limit(20)
+    .get();
+  if (snap.empty) {
+    bot.sendMessage(msg.chat.id, '✅ No completed or cancelled jobs.');
+    return;
+  }
+  const jobs = snap.docs.map(d => ({ ...d.data(), docId: d.id }));
+  const buttons = jobs.map(j => ([{
+    text: `${getJobStatus(j.status)} ${j.title} — KES ${j.pay}`,
+    callback_data: `admin_delete_${j.id}`
+  }]));
+  bot.sendMessage(msg.chat.id,
+    `🔐 *Admin — completed jobs* (${jobs.length})\n\nTap to delete:`,
+    { parse_mode: 'Markdown', reply_markup: { inline_keyboard: buttons } }
+  );
+});
+
 bot.onText(/\/banned/, async (msg) => {
   if (msg.from.id !== ADMIN_ID) return;
   const snap = await db.collection('users').where('banned', '==', true).get();
@@ -361,6 +382,38 @@ bot.on('callback_query', async (query) => {
 
   if (data.startsWith('manage_job_')) {
     showManageJob(chatId, userId, data.replace('manage_job_', ''));
+    return;
+  }
+
+  if (data.startsWith('admin_delete_')) {
+    if (userId !== ADMIN_ID) return;
+    const jobId = data.replace('admin_delete_', '');
+    const job = await getJob(jobId);
+    if (!job) { bot.sendMessage(chatId, '❌ Job not found.'); return; }
+    bot.sendMessage(chatId,
+      `🗑️ *Delete "${job.title}"?*\n\nThis will remove the job from the channel and database.`,
+      { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [
+        [{ text: '✅ Yes, delete', callback_data: `confirm_admin_delete_${jobId}` }],
+        [{ text: '❌ Cancel', callback_data: 'browse' }],
+      ]}}
+    );
+    return;
+  }
+
+  if (data.startsWith('confirm_admin_delete_')) {
+    if (userId !== ADMIN_ID) return;
+    const jobId = data.replace('confirm_admin_delete_', '');
+    const job = await getJob(jobId);
+    if (!job) { bot.sendMessage(chatId, '❌ Job not found.'); return; }
+    if (job.channelMsgId) {
+      await bot.deleteMessage(CHANNEL_ID, job.channelMsgId).catch(() => {});
+    }
+    const apps = await getJobApplications(jobId);
+    for (const app of apps) {
+      await db.collection('applications').doc(app.docId).delete().catch(() => {});
+    }
+    await db.collection('jobs').doc(String(jobId)).delete();
+    bot.sendMessage(chatId, `✅ Job "${job.title}" deleted.`, { reply_markup: mainMenu() });
     return;
   }
 
@@ -871,6 +924,7 @@ async function showJobDetail(chatId, userId, jobId) {
   if (alreadyApplied) buttons.push([{ text: '✅ Already applied', callback_data: 'noop' }]);
   if (isOwner)        buttons.push([{ text: '⚙️ Manage this hustle', callback_data: `manage_job_${jobId}` }]);
   if (userId === ADMIN_ID && !isOwner) buttons.push([{ text: `🔐 Ban poster (${job.posterName})`, callback_data: `ban_user_${job.posterId}` }]);
+  if (userId === ADMIN_ID && job.status === 'done') buttons.push([{ text: '🗑️ Delete (admin)', callback_data: `admin_delete_${jobId}` }]);
   buttons.push([{ text: '← Back to list', callback_data: 'browse' }]);
 
   const text =
@@ -992,3 +1046,12 @@ async function updateChannelPost(job) {
 }
 
 console.log('🤖 Husssle bot is running with Firestore...');
+
+bot.setMyCommands([
+  { command: 'menu',   description: 'Main menu' },
+  { command: 'work',   description: 'My active jobs & applications' },
+  { command: 'jobs',   description: 'Browse open hustles' },
+  { command: 'post',   description: 'Post a new hustle' },
+  { command: 'banned', description: 'View banned users' },
+  { command: 'admin',  description: 'Completed jobs (admin)' },
+]).then(() => console.log('✅ Commands set!')).catch(console.error);
