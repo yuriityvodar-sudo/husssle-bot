@@ -782,7 +782,12 @@ bot.on('message', async (msg) => {
         publishJob(chatId, userId, user, s.draft);
         clearSession(userId);
       } else {
-        bot.sendMessage(chatId, `✅ Photo ${count} added! Send another photo or tap DONE when ready.`);
+        bot.sendMessage(chatId,
+          `✅ Photo ${count} added! Send another or post now:`,
+          { reply_markup: { inline_keyboard: [
+            [{ text: '🚀 Post it!', callback_data: 'post_photos_done' }],
+          ]}}
+        );
       }
     } else if (text.toLowerCase() === 'skip') {
       s.draft.photos = [];
