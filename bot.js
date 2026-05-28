@@ -290,6 +290,7 @@ bot.on('callback_query', async (query) => {
     }
 
     const active   = apps.filter(a => a.status === 'accepted');
+    const done     = apps.filter(a => a.status === 'done');
     const pending  = apps.filter(a => a.status === 'pending');
     const rejected = apps.filter(a => a.status === 'rejected');
 
@@ -314,6 +315,12 @@ bot.on('callback_query', async (query) => {
     if (rejected.length) {
       text += `❌ *Not selected (${rejected.length})*\n`;
       rejected.forEach(a => { text += `• ${a.jobTitle}\n`; });
+      text += '\n';
+    }
+
+    if (done.length) {
+      text += `✅ *Done (${done.length})*\n`;
+      done.forEach(a => { text += `• ${a.jobTitle} · KES ${a.jobPay}\n`; });
     }
 
     buttons.push([{ text: '📋 Browse more', callback_data: 'browse' }]);
@@ -525,6 +532,8 @@ bot.on('callback_query', async (query) => {
     const apps = await getJobApplications(jobId);
     const acceptedApp = apps.find(a => a.status === 'accepted');
     if (acceptedApp) {
+      const appSnap = await db.collection('applications').where('jobId', '==', String(jobId)).where('workerId', '==', acceptedApp.workerId).get();
+      appSnap.docs.forEach(doc => doc.ref.update({ status: 'done' }));
       bot.sendMessage(chatId, `✅ *Job marked as Done!*\n\nPlease rate the worker:`, {
         parse_mode: 'Markdown',
         reply_markup: { inline_keyboard: [[
