@@ -205,11 +205,11 @@ bot.onText(/\/post/, (msg) => {
 bot.onText(/\/admin/, async (msg) => {
   if (msg.from.id !== ADMIN_ID) return;
   const snap = await db.collection('jobs')
-    .where('status', 'in', ['done', 'cancelled'])
+    .orderBy('createdAt', 'desc')
     .limit(20)
     .get();
   if (snap.empty) {
-    bot.sendMessage(msg.chat.id, '✅ No completed or cancelled jobs.');
+    bot.sendMessage(msg.chat.id, '✅ No jobs found.');
     return;
   }
   const jobs = snap.docs.map(d => ({ ...d.data(), docId: d.id }));
@@ -218,7 +218,7 @@ bot.onText(/\/admin/, async (msg) => {
     callback_data: `admin_delete_${j.id}`
   }]));
   bot.sendMessage(msg.chat.id,
-    `🔐 *Admin — completed jobs* (${jobs.length})\n\nTap to delete:`,
+    `🔐 *Admin — all jobs* (${jobs.length})\n\nTap to delete:`,
     { parse_mode: 'Markdown', reply_markup: { inline_keyboard: buttons } }
   );
 });
@@ -282,7 +282,16 @@ bot.on('callback_query', async (query) => {
       );
       return;
     }
-    submitApplication(chatId, userId, user, jobId);
+    // Confirm phone before applying
+    const s = getSession(userId);
+    s.draft.pendingJobId = jobId;
+    bot.sendMessage(chatId,
+      `📱 Your contact number:\n*${user.phone}*\n\nIs this correct?`,
+      { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [
+        [{ text: '✅ Yes, use this', callback_data: `confirm_phone_apply_${jobId}` }],
+        [{ text: '✏️ Change number', callback_data: `change_phone_apply_${jobId}` }],
+      ]}}
+    );
     return;
   }
 
@@ -470,6 +479,7 @@ bot.on('callback_query', async (query) => {
     }
     await db.collection('jobs').doc(String(jobId)).update({ status: 'open' });
     await updateChannelPost({ ...job, status: 'open' });
+    updateUserPin(userId).catch(() => {});
     bot.sendMessage(chatId, "🔄 Job re-opened! It's back to Open status.", { reply_markup: { inline_keyboard: [[{ text: '← My jobs', callback_data: 'my_jobs' }]] } });
     return;
   }
@@ -490,6 +500,8 @@ bot.on('callback_query', async (query) => {
     }
     await db.collection('jobs').doc(String(jobId)).update({ status: 'cancelled' });
     await updateChannelPost({ ...job, status: 'cancelled' });
+    if (acceptedApp) updateUserPin(acceptedApp.workerId).catch(() => {});
+    updateUserPin(userId).catch(() => {});
     bot.sendMessage(chatId, '❌ Job cancelled. Worker has been notified.', { reply_markup: { inline_keyboard: [[{ text: '← My jobs', callback_data: 'my_jobs' }]] } });
     return;
   }
@@ -537,6 +549,7 @@ bot.on('callback_query', async (query) => {
     }
     // Delete job from Firebase
     await db.collection('jobs').doc(String(jobId)).delete();
+    updateUserPin(userId).catch(() => {});
     bot.sendMessage(chatId, '✅ Job deleted successfully.', { reply_markup: { inline_keyboard: [[{ text: '← My jobs', callback_data: 'my_jobs' }]] } });
     return;
   }
@@ -553,10 +566,135 @@ bot.on('callback_query', async (query) => {
       `💰 KES ${job.pay}\n` +
       `📍 ${job.location}\n\n` +
       `👤 Customer: *${posterData.name}*\n` +
-      `📱 Phone: *${posterData.phone || 'N/A'}*\n\n` +
-      `_Contact them to coordinate. When done, ask them to mark the job as complete._`,
-      { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '← My Work', callback_data: 'my_applications' }]] } }
+      `📱 Phone: *${posterData.phone || 'N/A'}*`,
+      { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [
+        [{ text: '✅ Request completion', callback_data: `request_done_${jobId}` }],
+        [{ text: '🚪 Leave this job', callback_data: `request_leave_${jobId}` }],
+        [{ text: '⚠️ Report to admin', callback_data: `report_job_${jobId}` }],
+      ]}}
     );
+    return;
+  }
+
+  if (data.startsWith('confirm_phone_apply_')) {
+    const jobId = data.replace('confirm_phone_apply_', '');
+    submitApplication(chatId, userId, user, jobId);
+    return;
+  }
+
+  if (data.startsWith('change_phone_apply_')) {
+    const jobId = data.replace('change_phone_apply_', '');
+    const s = getSession(userId);
+    s.step = 'collect_phone';
+    s.draft.pendingJobId = jobId;
+    bot.sendMessage(chatId,
+      `📱 Please type your new phone number:`,
+      { reply_markup: { inline_keyboard: [[{ text: '❌ Cancel', callback_data: 'cancel' }]] } }
+    );
+    return;
+  }
+
+  if (data.startsWith('confirm_phone_accept_')) {
+    const parts = data.replace('confirm_phone_accept_', '').split('_');
+    const jobId = parts[0];
+    const workerId = parseInt(parts[1]);
+    acceptApplicant(chatId, userId, jobId, workerId);
+    return;
+  }
+
+  if (data.startsWith('change_phone_accept_')) {
+    const parts = data.replace('change_phone_accept_', '').split('_');
+    const jobId = parts[0];
+    const workerId = parseInt(parts[1]);
+    const s = getSession(userId);
+    s.step = 'collect_phone_for_post';
+    s.draft.pendingAccept = { jobId, workerId };
+    bot.sendMessage(chatId,
+      `📱 Please type your new phone number:`,
+      { reply_markup: { inline_keyboard: [[{ text: '❌ Cancel', callback_data: 'cancel' }]] } }
+    );
+    return;
+  }
+
+  if (data.startsWith('request_done_')) {
+    const jobId = data.replace('request_done_', '');
+    const job = await getJob(jobId);
+    if (!job) return;
+    bot.sendMessage(job.posterId,
+      `✅ *Completion Request*\n\n*${user.name}* says the job *${job.title}* is done.\n\nConfirm?`,
+      { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [
+        [{ text: '✅ Yes, mark as done!', callback_data: `mark_done_${jobId}` }],
+        [{ text: '❌ Not yet', callback_data: `decline_done_${jobId}_${userId}` }],
+      ]}}
+    ).catch(() => {});
+    bot.sendMessage(chatId, '✅ Request sent to customer. Waiting for confirmation.', { reply_markup: { inline_keyboard: [[{ text: '← Back', callback_data: `worker_job_${jobId}` }]] } });
+    return;
+  }
+
+  if (data.startsWith('decline_done_')) {
+    const parts = data.replace('decline_done_', '').split('_');
+    const jobId = parts[0];
+    const workerId = parseInt(parts[1]);
+    bot.sendMessage(workerId, `ℹ️ The customer says the job isn't done yet. Keep going! 💪`).catch(() => {});
+    bot.sendMessage(chatId, '✅ Worker has been notified.', { reply_markup: { inline_keyboard: [[{ text: '← Back', callback_data: `manage_job_${jobId}` }]] } });
+    return;
+  }
+
+  if (data.startsWith('request_leave_')) {
+    const jobId = data.replace('request_leave_', '');
+    const job = await getJob(jobId);
+    if (!job) return;
+    bot.sendMessage(job.posterId,
+      `🚪 *Leave Request*\n\n*${user.name}* wants to leave the job *${job.title}*.\n\nApprove?`,
+      { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [
+        [{ text: '✅ Approve', callback_data: `approve_leave_${jobId}_${userId}` }],
+      ]}}
+    ).catch(() => {});
+    bot.sendMessage(chatId, '✅ Request sent to customer. Waiting for response.', { reply_markup: { inline_keyboard: [[{ text: '← Back', callback_data: `worker_job_${jobId}` }]] } });
+    return;
+  }
+
+  if (data.startsWith('approve_leave_')) {
+    const parts = data.replace('approve_leave_', '').split('_');
+    const jobId = parts[0];
+    const workerId = parseInt(parts[1]);
+    const job = await getJob(jobId);
+    if (!job) return;
+    const appSnap = await db.collection('applications')
+      .where('jobId', '==', String(jobId))
+      .where('workerId', '==', workerId)
+      .get();
+    appSnap.docs.forEach(doc => doc.ref.update({ status: 'rejected' }));
+    await db.collection('jobs').doc(String(jobId)).update({ status: 'open' });
+    await updateChannelPost({ ...job, status: 'open' });
+    updateUserPin(userId).catch(() => {});
+    updateUserPin(workerId).catch(() => {});
+    bot.sendMessage(workerId, `✅ The customer approved your request. You've been removed from *${job.title}*.`, { parse_mode: 'Markdown' }).catch(() => {});
+    bot.sendMessage(chatId, `✅ *${job.title}* is back to Open. Worker has been notified.`, { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '← My jobs', callback_data: 'my_jobs' }]] } });
+    return;
+  }
+
+  if (data.startsWith('report_job_')) {
+    const jobId = data.replace('report_job_', '');
+    const job = await getJob(jobId);
+    if (!job) return;
+    const poster = await db.collection('users').doc(String(job.posterId)).get();
+    const posterData = poster.exists ? poster.data() : { name: 'N/A', phone: 'N/A' };
+    bot.sendMessage(ADMIN_ID,
+      `⚠️ *Worker Report*\n\n` +
+      `🔨 Job: *${job.title}* (KES ${job.pay})\n` +
+      `📍 ${job.location}\n\n` +
+      `👷 Worker: *${user.name}* (ID: ${userId})\n` +
+      `📱 ${user.phone || 'N/A'}\n\n` +
+      `👤 Customer: *${posterData.name}* (ID: ${job.posterId})\n` +
+      `📱 ${posterData.phone || 'N/A'}\n\n` +
+      `🆔 Job ID: ${jobId}`,
+      { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [
+        [{ text: '🔐 Ban customer', callback_data: `ban_user_${job.posterId}` }],
+        [{ text: '🗑️ Delete job', callback_data: `admin_delete_${jobId}` }],
+      ]}}
+    ).catch(() => {});
+    bot.sendMessage(chatId, '✅ Report sent to admin. We will review the situation.', { reply_markup: { inline_keyboard: [[{ text: '← Back', callback_data: `worker_job_${jobId}` }]] } });
     return;
   }
 
@@ -569,7 +707,15 @@ bot.on('callback_query', async (query) => {
     const parts    = data.split('_');
     const jobId    = parts[1];
     const workerId = parseInt(parts[2]);
-    acceptApplicant(chatId, userId, jobId, workerId);
+
+    // Confirm phone before accepting
+    bot.sendMessage(chatId,
+      `📱 Your number will be shared with the worker:\n*${user.phone || 'No phone set'}*\n\nIs this correct?`,
+      { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [
+        [{ text: '✅ Yes, confirm', callback_data: `confirm_phone_accept_${jobId}_${workerId}` }],
+        [{ text: '✏️ Change number', callback_data: `change_phone_accept_${jobId}_${workerId}` }],
+      ]}}
+    );
     return;
   }
 
@@ -587,6 +733,10 @@ bot.on('callback_query', async (query) => {
     if (acceptedApp) {
       const appSnap = await db.collection('applications').where('jobId', '==', String(jobId)).where('workerId', '==', acceptedApp.workerId).get();
       appSnap.docs.forEach(doc => doc.ref.update({ status: 'done' }));
+
+      updateUserPin(userId).catch(() => {});
+      updateUserPin(acceptedApp.workerId).catch(() => {});
+
       bot.sendMessage(chatId, `✅ *Job marked as Done!*\n\nPlease rate the worker:`, {
         parse_mode: 'Markdown',
         reply_markup: { inline_keyboard: [[
@@ -707,8 +857,13 @@ bot.on('message', async (msg) => {
   if (s.step === 'collect_phone_for_post') {
     if (!text) { bot.sendMessage(chatId, '⚠️ Please type your phone number.'); return; }
     await updateUser(userId, { phone: text });
+    const pendingAccept = s.draft.pendingAccept;
     clearSession(userId);
-    startPostFlow(chatId, userId);
+    if (pendingAccept) {
+      acceptApplicant(chatId, userId, pendingAccept.jobId, pendingAccept.workerId);
+    } else {
+      startPostFlow(chatId, userId);
+    }
     return;
   }
 
@@ -897,6 +1052,8 @@ async function publishJob(chatId, userId, user, draft) {
   if (channelMsg) {
     await jobRef.update({ channelMsgId: channelMsg.message_id });
   }
+
+  updateUserPin(userId).catch(() => {});
 }
 
 async function showJobList(chatId) {
@@ -1030,12 +1187,71 @@ async function acceptApplicant(chatId, posterId, jobId, workerId) {
     bot.pinChatMessage(workerId, workerMsg.message_id).catch(() => {});
   }
 
+  // Update dynamic pins for both users
+  updateUserPin(posterId).catch(() => {});
+  updateUserPin(workerId).catch(() => {});
+
   apps.filter(a => a.workerId !== workerId).forEach(a => {
     bot.sendMessage(a.workerId,
       `ℹ️ Unfortunately, someone else was selected for *${job.title}*.\n\nKeep hustling! 💪`,
       { parse_mode: 'Markdown' }
     ).catch(() => {});
   });
+}
+
+async function updateUserPin(userId) {
+  try {
+    const workerSnap = await db.collection('applications')
+      .where('workerId', '==', userId)
+      .where('status', '==', 'accepted')
+      .get();
+    const workerJobs = workerSnap.docs.map(d => d.data());
+
+    const takenSnap = await db.collection('jobs')
+      .where('posterId', '==', userId)
+      .where('status', '==', 'taken')
+      .get();
+    const takenJobs = takenSnap.docs.map(d => ({ ...d.data(), docId: d.id }));
+
+    const openSnap = await db.collection('jobs')
+      .where('posterId', '==', userId)
+      .where('status', '==', 'open')
+      .get();
+    const openJobs = openSnap.docs.map(d => ({ ...d.data(), docId: d.id }));
+
+    const buttons = [];
+    workerJobs.forEach(a => {
+      buttons.push([{ text: `🚨 Working: ${a.jobTitle} — KES ${a.jobPay}`, callback_data: `worker_job_${a.jobId}` }]);
+    });
+    takenJobs.forEach(j => {
+      buttons.push([{ text: `🔨 In progress: ${j.title} — KES ${j.pay}`, callback_data: `manage_job_${j.id}` }]);
+    });
+    openJobs.forEach(j => {
+      buttons.push([{ text: `🟢 Searching: ${j.title} — KES ${j.pay}`, callback_data: `manage_job_${j.id}` }]);
+    });
+
+    const userDoc = await db.collection('users').doc(String(userId)).get();
+    const userData = userDoc.exists ? userDoc.data() : {};
+
+    if (userData.pinnedMsgId) {
+      await bot.deleteMessage(userId, userData.pinnedMsgId).catch(() => {});
+    }
+
+    if (buttons.length === 0) {
+      await db.collection('users').doc(String(userId)).update({ pinnedMsgId: null });
+      return;
+    }
+
+    const total = workerJobs.length + takenJobs.length + openJobs.length;
+    const pinMsg = await bot.sendMessage(userId,
+      `🚨 *Active hustles (${total})*`,
+      { parse_mode: 'Markdown', reply_markup: { inline_keyboard: buttons } }
+    );
+    await bot.pinChatMessage(userId, pinMsg.message_id, { disable_notification: true }).catch(() => {});
+    await db.collection('users').doc(String(userId)).update({ pinnedMsgId: pinMsg.message_id });
+  } catch (e) {
+    console.log('updateUserPin error:', e.message);
+  }
 }
 
 async function updateChannelPost(job) {
