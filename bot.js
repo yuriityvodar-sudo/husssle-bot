@@ -315,6 +315,14 @@ bot.on('callback_query', async (query) => {
 
   await bot.answerCallbackQuery(query.id).catch(() => {});
 
+  // Clear buttons on final actions, keep on navigation/viewing
+  const keepButtons = ['browse', 'menu_back', 'my_applications', 'my_jobs', 'post_start', 'noop'];
+  const keepPrefixes = ['view_job_', 'manage_job_', 'worker_job_', 'view_applicants_', 'view_accepted_', 'view_rejected_'];
+  const isKeep = keepButtons.includes(data) || keepPrefixes.some(p => data.startsWith(p));
+  if (!isKeep) {
+    bot.editMessageReplyMarkup({ inline_keyboard: [] }, { chat_id: chatId, message_id: msgId }).catch(() => {});
+  }
+
   if (!checkRateLimit(userId, chatId)) return;
 
   const user = await getUser(query.from);
