@@ -316,7 +316,7 @@ bot.on('callback_query', async (query) => {
   await bot.answerCallbackQuery(query.id).catch(() => {});
 
   // Clear buttons on final actions, keep on navigation/viewing
-  const keepButtons = ['browse', 'menu_back', 'my_applications', 'my_jobs', 'post_start', 'noop'];
+  const keepButtons = ['browse', 'menu_back', 'my_applications', 'my_jobs', 'noop'];
   const keepPrefixes = ['view_job_', 'manage_job_', 'worker_job_', 'view_applicants_', 'view_accepted_', 'view_rejected_'];
   const isKeep = keepButtons.includes(data) || keepPrefixes.some(p => data.startsWith(p));
   if (!isKeep) {
@@ -1136,12 +1136,13 @@ bot.on('message', async (msg) => {
       bot.sendMessage(chatId, `⚠️ Your title contains inappropriate content. Please rephrase.`);
       return;
     }
+    if (s.draft.lastMsgId) bot.editMessageReplyMarkup({ inline_keyboard: [] }, { chat_id: chatId, message_id: s.draft.lastMsgId }).catch(() => {});
     s.draft.title = text;
     s.step = 'post_description';
     bot.sendMessage(chatId,
       `✅ *Title:* ${text}\n\nStep 2 of 4\n\n*Describe the job:*\n_What needs to be done? Any details?_`,
       { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '❌ Cancel', callback_data: 'cancel' }]] } }
-    );
+    ).then(m => { s.draft.lastMsgId = m.message_id; });
     return;
   }
 
@@ -1152,6 +1153,7 @@ bot.on('message', async (msg) => {
       bot.sendMessage(chatId, `⚠️ Your description contains inappropriate content. Please rephrase.`);
       return;
     }
+    if (s.draft.lastMsgId) bot.editMessageReplyMarkup({ inline_keyboard: [] }, { chat_id: chatId, message_id: s.draft.lastMsgId }).catch(() => {});
     s.draft.description = text;
     s.step = 'post_pay';
     bot.sendMessage(chatId,
@@ -1164,6 +1166,7 @@ bot.on('message', async (msg) => {
   if (s.step === 'post_pay') {
     const pay = parseInt(text.replace(/[^0-9]/g, ''));
     if (!pay || pay < 1) { bot.sendMessage(chatId, '⚠️ Please enter a valid amount, e.g. 3000'); return; }
+    if (s.draft.lastMsgId) bot.editMessageReplyMarkup({ inline_keyboard: [] }, { chat_id: chatId, message_id: s.draft.lastMsgId }).catch(() => {});
     s.draft.pay = pay;
     s.step = 'post_location';
     bot.sendMessage(chatId,
@@ -1175,6 +1178,7 @@ bot.on('message', async (msg) => {
 
   if (s.step === 'post_location') {
     if (!text) { bot.sendMessage(chatId, '⚠️ Please type a location.'); return; }
+    if (s.draft.lastMsgId) bot.editMessageReplyMarkup({ inline_keyboard: [] }, { chat_id: chatId, message_id: s.draft.lastMsgId }).catch(() => {});
     s.draft.location = text;
     s.step = 'post_urgency';
     bot.sendMessage(chatId,
@@ -1219,14 +1223,15 @@ bot.on('message', async (msg) => {
 
 // ─── Flow functions ───────────────────────────────────────────────────────────
 
-function startPostFlow(chatId, userId) {
+async function startPostFlow(chatId, userId) {
   const s = getSession(userId);
   s.step  = 'post_title';
   s.draft = {};
-  bot.sendMessage(chatId,
+  const step1Msg = await bot.sendMessage(chatId,
     '➕ *Post a Hustle*\n\nStep 1 of 4\n\n*What\'s the job title?*\n_e.g. Wall painting, Laptop repair, Catering_',
     { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '❌ Cancel', callback_data: 'cancel' }]] } }
   );
+  s.draft.lastMsgId = step1Msg.message_id;
 }
 
 async function submitApplication(chatId, userId, user, jobId) {
