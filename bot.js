@@ -212,7 +212,7 @@ async function getJobApplications(jobId) {
 
 // ─── /start ───────────────────────────────────────────────────────────────────
 bot.onText(/\/start(?:\s(.+))?/, async (msg, match) => {
-  await getUser(msg.from);
+  const user = await getUser(msg.from);
   const param = match[1];
 
   if (param === 'post') { startPostFlow(msg.chat.id, msg.from.id); return; }
@@ -1076,7 +1076,7 @@ async function submitApplication(chatId, userId, user, jobId) {
     status:      'pending',
     appliedAt:   Date.now(),
   };
-  await db.collection('applications').add(appData);
+  await db.collection('applications').doc(`${appData.jobId}_${appData.workerId}`).set(appData);
 
   // update applicant count on job
   await db.collection('jobs').doc(String(jobId)).update({
