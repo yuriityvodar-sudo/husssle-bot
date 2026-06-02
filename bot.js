@@ -1079,10 +1079,10 @@ bot.on('message', async (msg) => {
         createdAt:  Date.now(),
       });
     }
-    // Delete pending feedback
+    // Delete pending feedback (doc is named by who LEFT the review, not who was rated)
     const fbDocId = reviewType === 'worker'
-      ? `${reviewJobId}_${userId}_worker`
-      : `${reviewJobId}_${userId}_poster`;
+      ? `${reviewJobId}_${userId}_poster`
+      : `${reviewJobId}_${userId}_worker`;
     await db.collection('pendingFeedback').doc(fbDocId).delete().catch(() => {});
     clearSession(userId);
     bot.sendMessage(chatId, `✅ *Review submitted!*\n\n⭐ ${reviewStars} star${reviewStars > 1 ? 's' : ''} — "${text}"\n\nThanks for the feedback! 🙏`, { parse_mode: 'Markdown', reply_markup: mainMenu() });
@@ -1518,6 +1518,7 @@ async function updateUserPin(userId) {
     }
 
     if (buttons.length === 0) {
+      await bot.unpinAllChatMessages(userId).catch(() => {});
       await db.collection('users').doc(String(userId)).update({ pinnedMsgId: null });
       return;
     }
