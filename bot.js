@@ -1024,7 +1024,7 @@ bot.on('callback_query', async (query) => {
     bot.sendMessage(chatId,
       `⭐ *${stars} star${stars > 1 ? 's' : ''}* selected!\n\n✍️ *Now write your review* (min 10 characters):`,
       { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '❌ Cancel', callback_data: 'cancel' }]] } }
-    );
+    ).then(m => { s.draft.lastMsgId = m.message_id; });
     return;
   }
 
@@ -1099,6 +1099,7 @@ bot.on('message', async (msg) => {
       ? `${reviewJobId}_${userId}_poster`
       : `${reviewJobId}_${userId}_worker`;
     await db.collection('pendingFeedback').doc(fbDocId).delete().catch(() => {});
+    if (s.draft.lastMsgId) bot.editMessageReplyMarkup({ inline_keyboard: [] }, { chat_id: chatId, message_id: s.draft.lastMsgId }).catch(() => {});
     clearSession(userId);
     bot.sendMessage(chatId, `✅ *Review submitted!*\n\n⭐ ${reviewStars} star${reviewStars > 1 ? 's' : ''} — "${text}"\n\nThanks for the feedback! 🙏`, { parse_mode: 'Markdown', reply_markup: mainMenu() });
     return;
@@ -1125,6 +1126,7 @@ bot.on('message', async (msg) => {
     }
     // Delete pending feedback doc
     await db.collection('pendingFeedback').doc(pendingFeedbackDocId).delete().catch(() => {});
+    if (s.draft.lastMsgId) bot.editMessageReplyMarkup({ inline_keyboard: [] }, { chat_id: chatId, message_id: s.draft.lastMsgId }).catch(() => {});
     clearSession(userId);
     bot.sendMessage(chatId, `✅ *Review submitted!* Thanks 🙏\n\n⭐ ${pendingFeedbackStars} star${pendingFeedbackStars > 1 ? 's' : ''} — "${text}"`, { parse_mode: 'Markdown' });
     // Continue with what they were trying to do
