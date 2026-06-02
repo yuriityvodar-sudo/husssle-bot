@@ -144,7 +144,6 @@ function formatChannelPost(job) {
 function mainMenu() {
   return {
     inline_keyboard: [
-      [{ text: '📋 Browse hustles',          callback_data: 'browse' }],
       [{ text: '➕ Post a hustle',            callback_data: 'post_start' }],
       [{ text: '📬 My applications', callback_data: 'my_applications' }],
       [{ text: '📌 My posted jobs',         callback_data: 'my_jobs' }],
