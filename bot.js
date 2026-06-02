@@ -192,6 +192,11 @@ async function updateUser(userId, data) {
   await db.collection('users').doc(String(userId)).update(data);
 }
 
+async function hasPendingFeedback(userId) {
+  const snap = await db.collection('pendingFeedback').where('fromUserId', '==', userId).limit(1).get();
+  return snap.empty ? null : { ...snap.docs[0].data(), docId: snap.docs[0].id };
+}
+
 async function getJob(jobId) {
   const doc = await db.collection('jobs').doc(String(jobId)).get();
   if (!doc.exists) return null;
@@ -349,6 +354,28 @@ bot.on('callback_query', async (query) => {
       bot.sendMessage(chatId, '✅ You already applied to this hustle.'); return;
     }
 
+    // Check pending feedback first
+    const pendingFb = await hasPendingFeedback(userId);
+    if (pendingFb) {
+      const s = getSession(userId);
+      s.step = 'write_review_pending';
+      s.draft.pendingFeedbackDocId = pendingFb.docId;
+      s.draft.pendingFeedbackToId  = pendingFb.toUserId;
+      s.draft.pendingFeedbackStars = null;
+      s.draft.afterFeedback = { action: 'apply', jobId };
+      bot.sendMessage(chatId,
+        `⚠️ *Before you can apply, you need to leave feedback!*\n\nJob: *${pendingFb.jobTitle}*\n\nFirst, rate your experience (1-5 stars):`,
+        { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[
+          { text: '⭐1', callback_data: `pending_fb_stars_1` },
+          { text: '⭐2', callback_data: `pending_fb_stars_2` },
+          { text: '⭐3', callback_data: `pending_fb_stars_3` },
+          { text: '⭐4', callback_data: `pending_fb_stars_4` },
+          { text: '⭐5', callback_data: `pending_fb_stars_5` },
+        ]] }}
+      );
+      return;
+    }
+
     if (!user.phone) {
       const s = getSession(userId);
       s.step = 'collect_phone';
@@ -373,6 +400,27 @@ bot.on('callback_query', async (query) => {
   }
 
   if (data === 'post_start') {
+    // Check pending feedback first
+    const pendingFb = await hasPendingFeedback(userId);
+    if (pendingFb) {
+      const s = getSession(userId);
+      s.step = 'write_review_pending';
+      s.draft.pendingFeedbackDocId = pendingFb.docId;
+      s.draft.pendingFeedbackToId  = pendingFb.toUserId;
+      s.draft.pendingFeedbackStars = null;
+      s.draft.afterFeedback = { action: 'post' };
+      bot.sendMessage(chatId,
+        `⚠️ *Before you can post, you need to leave feedback!*\n\nJob: *${pendingFb.jobTitle}*\n\nFirst, rate your experience (1-5 stars):`,
+        { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[
+          { text: '⭐1', callback_data: `pending_fb_stars_1` },
+          { text: '⭐2', callback_data: `pending_fb_stars_2` },
+          { text: '⭐3', callback_data: `pending_fb_stars_3` },
+          { text: '⭐4', callback_data: `pending_fb_stars_4` },
+          { text: '⭐5', callback_data: `pending_fb_stars_5` },
+        ]] }}
+      );
+      return;
+    }
     if (!user.phone) {
       const s = getSession(userId);
       s.step = 'collect_phone_for_post';
@@ -845,6 +893,15 @@ bot.on('callback_query', async (query) => {
       const appSnap = await db.collection('applications').where('jobId', '==', String(jobId)).where('workerId', '==', acceptedApp.workerId).get();
       appSnap.docs.forEach(doc => doc.ref.update({ status: 'done' }));
 
+      // Create pending feedback records for both sides
+      const feedbackBase = { jobId: String(jobId), jobTitle: job.title, createdAt: Date.now() };
+      await db.collection('pendingFeedback').doc(`${jobId}_${userId}_poster`).set({
+        ...feedbackBase, fromUserId: userId, toUserId: acceptedApp.workerId, type: 'poster'
+      });
+      await db.collection('pendingFeedback').doc(`${jobId}_${acceptedApp.workerId}_worker`).set({
+        ...feedbackBase, fromUserId: acceptedApp.workerId, toUserId: userId, type: 'worker'
+      });
+
       updateUserPin(userId).catch(() => {});
       updateUserPin(acceptedApp.workerId).catch(() => {});
 
@@ -878,13 +935,18 @@ bot.on('callback_query', async (query) => {
     const parts = data.split('_');
     const stars = parseInt(parts[parts.length - 1]);
     const wId   = parseInt(parts[3]);
-    const wDoc  = await db.collection('users').doc(String(wId)).get();
-    if (wDoc.exists) {
-      const w = wDoc.data();
-      await updateUser(wId, { rating: (w.rating || 0) + stars, ratingCount: (w.ratingCount || 0) + 1 });
-    }
+    const jobId = parts[2];
+    const s = getSession(userId);
+    s.step = 'write_review';
+    s.draft.reviewStars  = stars;
+    s.draft.reviewTarget = wId;
+    s.draft.reviewJobId  = jobId;
+    s.draft.reviewType   = 'worker';
     bot.editMessageReplyMarkup({ inline_keyboard: [] }, { chat_id: chatId, message_id: msgId }).catch(() => {});
-    bot.sendMessage(chatId, `⭐ Thanks! You gave ${stars} star${stars > 1 ? 's' : ''}.`, { reply_markup: mainMenu() });
+    bot.sendMessage(chatId,
+      `⭐ You gave *${stars} star${stars > 1 ? 's' : ''}*!\n\n✍️ *Write a short review* (min 10 characters):\n_e.g. "Great worker, very punctual and did an excellent job!"_`,
+      { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '❌ Cancel', callback_data: 'cancel' }]] } }
+    );
     return;
   }
 
@@ -892,13 +954,18 @@ bot.on('callback_query', async (query) => {
     const parts = data.split('_');
     const stars = parseInt(parts[parts.length - 1]);
     const pId   = parseInt(parts[3]);
-    const pDoc  = await db.collection('users').doc(String(pId)).get();
-    if (pDoc.exists) {
-      const p = pDoc.data();
-      await updateUser(pId, { rating: (p.rating || 0) + stars, ratingCount: (p.ratingCount || 0) + 1 });
-    }
+    const jobId = parts[2];
+    const s = getSession(userId);
+    s.step = 'write_review';
+    s.draft.reviewStars  = stars;
+    s.draft.reviewTarget = pId;
+    s.draft.reviewJobId  = jobId;
+    s.draft.reviewType   = 'poster';
     bot.editMessageReplyMarkup({ inline_keyboard: [] }, { chat_id: chatId, message_id: msgId }).catch(() => {});
-    bot.sendMessage(chatId, `⭐ Thanks! You gave ${stars} star${stars > 1 ? 's' : ''}.`, { reply_markup: mainMenu() });
+    bot.sendMessage(chatId,
+      `⭐ You gave *${stars} star${stars > 1 ? 's' : ''}*!\n\n✍️ *Write a short review* (min 10 characters):\n_e.g. "Great customer, very clear instructions and paid on time!"_`,
+      { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '❌ Cancel', callback_data: 'cancel' }]] } }
+    );
     return;
   }
 
@@ -930,6 +997,19 @@ bot.on('callback_query', async (query) => {
     if (!s.draft.photos) s.draft.photos = [];
     publishJob(chatId, userId, user, s.draft);
     clearSession(userId);
+    return;
+  }
+
+  if (data.startsWith('pending_fb_stars_')) {
+    const stars = parseInt(data.replace('pending_fb_stars_', ''));
+    const s = getSession(userId);
+    if (s.step !== 'write_review_pending') return;
+    s.draft.pendingFeedbackStars = stars;
+    s.step = 'write_review_pending_comment';
+    bot.sendMessage(chatId,
+      `⭐ *${stars} star${stars > 1 ? 's' : ''}* selected!\n\n✍️ *Now write your review* (min 10 characters):`,
+      { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '❌ Cancel', callback_data: 'cancel' }]] } }
+    );
     return;
   }
 
@@ -973,6 +1053,69 @@ bot.on('message', async (msg) => {
     if (pendingAccept) {
       acceptApplicant(chatId, userId, pendingAccept.jobId, pendingAccept.workerId);
     } else {
+      startPostFlow(chatId, userId);
+    }
+    return;
+  }
+
+  if (s.step === 'write_review') {
+    if (!text || text.length < 10) {
+      bot.sendMessage(chatId, '⚠️ Review must be at least 10 characters. Please write a bit more:');
+      return;
+    }
+    const { reviewStars, reviewTarget, reviewJobId, reviewType } = s.draft;
+    // Save rating + review to target user
+    const targetDoc = await db.collection('users').doc(String(reviewTarget)).get();
+    if (targetDoc.exists) {
+      const t = targetDoc.data();
+      await updateUser(reviewTarget, { rating: (t.rating || 0) + reviewStars, ratingCount: (t.ratingCount || 0) + 1 });
+      await db.collection('users').doc(String(reviewTarget)).collection('reviews').add({
+        fromUserId: userId,
+        fromName:   user.name,
+        stars:      reviewStars,
+        comment:    text,
+        jobId:      reviewJobId,
+        type:       reviewType,
+        createdAt:  Date.now(),
+      });
+    }
+    // Delete pending feedback
+    const fbDocId = reviewType === 'worker'
+      ? `${reviewJobId}_${userId}_worker`
+      : `${reviewJobId}_${userId}_poster`;
+    await db.collection('pendingFeedback').doc(fbDocId).delete().catch(() => {});
+    clearSession(userId);
+    bot.sendMessage(chatId, `✅ *Review submitted!*\n\n⭐ ${reviewStars} star${reviewStars > 1 ? 's' : ''} — "${text}"\n\nThanks for the feedback! 🙏`, { parse_mode: 'Markdown', reply_markup: mainMenu() });
+    return;
+  }
+
+  if (s.step === 'write_review_pending_comment') {
+    if (!text || text.length < 10) {
+      bot.sendMessage(chatId, '⚠️ Review must be at least 10 characters. Please write a bit more:');
+      return;
+    }
+    const { pendingFeedbackDocId, pendingFeedbackToId, pendingFeedbackStars, afterFeedback } = s.draft;
+    // Save rating + review
+    const targetDoc = await db.collection('users').doc(String(pendingFeedbackToId)).get();
+    if (targetDoc.exists) {
+      const t = targetDoc.data();
+      await updateUser(pendingFeedbackToId, { rating: (t.rating || 0) + pendingFeedbackStars, ratingCount: (t.ratingCount || 0) + 1 });
+      await db.collection('users').doc(String(pendingFeedbackToId)).collection('reviews').add({
+        fromUserId: userId,
+        fromName:   user.name,
+        stars:      pendingFeedbackStars,
+        comment:    text,
+        createdAt:  Date.now(),
+      });
+    }
+    // Delete pending feedback doc
+    await db.collection('pendingFeedback').doc(pendingFeedbackDocId).delete().catch(() => {});
+    clearSession(userId);
+    bot.sendMessage(chatId, `✅ *Review submitted!* Thanks 🙏\n\n⭐ ${pendingFeedbackStars} star${pendingFeedbackStars > 1 ? 's' : ''} — "${text}"`, { parse_mode: 'Markdown' });
+    // Continue with what they were trying to do
+    if (afterFeedback.action === 'apply') {
+      showJobDetail(chatId, userId, afterFeedback.jobId);
+    } else if (afterFeedback.action === 'post') {
       startPostFlow(chatId, userId);
     }
     return;
