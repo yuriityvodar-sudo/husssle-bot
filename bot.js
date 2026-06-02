@@ -1159,7 +1159,7 @@ bot.on('message', async (msg) => {
     bot.sendMessage(chatId,
       `✅ Got it.\n\nStep 3 of 4\n\n*How much are you paying? (KES)*\n_Just the number, e.g. 3000_`,
       { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '❌ Cancel', callback_data: 'cancel' }]] } }
-    );
+    ).then(m => { s.draft.lastMsgId = m.message_id; });
     return;
   }
 
@@ -1172,7 +1172,7 @@ bot.on('message', async (msg) => {
     bot.sendMessage(chatId,
       `✅ *Pay:* KES ${pay}\n\nStep 4 of 4\n\n*Where is the job? (location in Nairobi)*\n_e.g. Westlands, Karen, CBD_`,
       { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '❌ Cancel', callback_data: 'cancel' }]] } }
-    );
+    ).then(m => { s.draft.lastMsgId = m.message_id; });
     return;
   }
 
