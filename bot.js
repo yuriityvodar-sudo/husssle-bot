@@ -1192,6 +1192,7 @@ async function showApplicants(chatId, userId, jobId) {
   }
   const pending  = apps.filter(a => a.status === 'pending');
   const accepted = apps.filter(a => a.status === 'accepted');
+  const rejected = apps.filter(a => a.status === 'rejected');
 
   let text = `👥 *Applicants for "${job.title}"* (${apps.length})\n\n`;
 
@@ -1208,6 +1209,13 @@ async function showApplicants(chatId, userId, jobId) {
       text += `${i+1}. *${a.workerName}* — ${getRatingStars(a.rating, a.ratingCount)}\n📱 ${a.workerPhone}\n\n`;
     });
     text += 'Tap to accept:';
+  }
+
+  if (rejected.length) {
+    text += `❌ *Not selected (${rejected.length}):*\n`;
+    rejected.forEach(a => {
+      text += `• *${a.workerName}* — ${getRatingStars(a.rating, a.ratingCount)}\n`;
+    });
   }
 
   const buttons = pending.map(a => ([{ text: `✅ Accept ${a.workerName}`, callback_data: `accept_${jobId}_${a.workerId}` }]));
