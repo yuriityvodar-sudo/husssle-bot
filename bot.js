@@ -917,26 +917,26 @@ bot.on('callback_query', async (query) => {
       updateUserPin(userId).catch(() => {});
       updateUserPin(acceptedApp.workerId).catch(() => {});
 
-      bot.sendMessage(chatId, `✅ *Job marked as Done!*\n\nPlease rate the worker:`, {
-        parse_mode: 'Markdown',
-        reply_markup: { inline_keyboard: [[
+      bot.sendMessage(chatId,
+        `✅ *Job marked as Done!*\n\n⭐ *Rate & review the worker*\n_Tap a star, then type your comment below:_`,
+        { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[
           { text: '⭐1', callback_data: `rate_worker_${jobId}_${acceptedApp.workerId}_1` },
           { text: '⭐2', callback_data: `rate_worker_${jobId}_${acceptedApp.workerId}_2` },
           { text: '⭐3', callback_data: `rate_worker_${jobId}_${acceptedApp.workerId}_3` },
           { text: '⭐4', callback_data: `rate_worker_${jobId}_${acceptedApp.workerId}_4` },
           { text: '⭐5', callback_data: `rate_worker_${jobId}_${acceptedApp.workerId}_5` },
-        ]] }
-      });
-      bot.sendMessage(acceptedApp.workerId, `✅ *${job.title}* has been marked as Done!\n\nPlease rate the customer:`, {
-        parse_mode: 'Markdown',
-        reply_markup: { inline_keyboard: [[
+        ]] }}
+      );
+      bot.sendMessage(acceptedApp.workerId,
+        `✅ *${job.title}* has been marked as Done!\n\n⭐ *Rate & review the customer*\n_Tap a star, then type your comment below:_`,
+        { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[
           { text: '⭐1', callback_data: `rate_poster_${jobId}_${userId}_1` },
           { text: '⭐2', callback_data: `rate_poster_${jobId}_${userId}_2` },
           { text: '⭐3', callback_data: `rate_poster_${jobId}_${userId}_3` },
           { text: '⭐4', callback_data: `rate_poster_${jobId}_${userId}_4` },
           { text: '⭐5', callback_data: `rate_poster_${jobId}_${userId}_5` },
-        ]] }
-      }).catch(() => {});
+        ]] }}
+      ).catch(() => {});
     } else {
       bot.sendMessage(chatId, '✅ Job marked as Done!', { reply_markup: mainMenu() });
     }
@@ -954,11 +954,12 @@ bot.on('callback_query', async (query) => {
     s.draft.reviewTarget = wId;
     s.draft.reviewJobId  = jobId;
     s.draft.reviewType   = 'worker';
-    bot.editMessageReplyMarkup({ inline_keyboard: [] }, { chat_id: chatId, message_id: msgId }).catch(() => {});
-    bot.sendMessage(chatId,
-      `⭐ You gave *${stars} star${stars > 1 ? 's' : ''}*!\n\n✍️ *Write a short review* (min 10 characters):\n_e.g. "Great worker, very punctual and did an excellent job!"_`,
-      { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '❌ Cancel', callback_data: 'cancel' }]] } }
-    );
+    s.draft.lastMsgId    = msgId;
+    // Edit the same message to confirm stars and prompt for comment
+    bot.editMessageText(
+      `✅ *Job marked as Done!*\n\n⭐ *${stars} star${stars > 1 ? 's' : ''}* selected!\n\n✍️ Now type your review below (min 10 characters):`,
+      { chat_id: chatId, message_id: msgId, parse_mode: 'Markdown' }
+    ).catch(() => {});
     return;
   }
 
@@ -973,11 +974,12 @@ bot.on('callback_query', async (query) => {
     s.draft.reviewTarget = pId;
     s.draft.reviewJobId  = jobId;
     s.draft.reviewType   = 'poster';
-    bot.editMessageReplyMarkup({ inline_keyboard: [] }, { chat_id: chatId, message_id: msgId }).catch(() => {});
-    bot.sendMessage(chatId,
-      `⭐ You gave *${stars} star${stars > 1 ? 's' : ''}*!\n\n✍️ *Write a short review* (min 10 characters):\n_e.g. "Great customer, very clear instructions and paid on time!"_`,
-      { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '❌ Cancel', callback_data: 'cancel' }]] } }
-    );
+    s.draft.lastMsgId    = msgId;
+    // Edit the same message to confirm stars and prompt for comment
+    bot.editMessageText(
+      `✅ *Job marked as Done!*\n\n⭐ *${stars} star${stars > 1 ? 's' : ''}* selected!\n\n✍️ Now type your review below (min 10 characters):`,
+      { chat_id: chatId, message_id: msgId, parse_mode: 'Markdown' }
+    ).catch(() => {});
     return;
   }
 
@@ -1018,10 +1020,11 @@ bot.on('callback_query', async (query) => {
     if (s.step !== 'write_review_pending') return;
     s.draft.pendingFeedbackStars = stars;
     s.step = 'write_review_pending_comment';
-    bot.sendMessage(chatId,
-      `⭐ *${stars} star${stars > 1 ? 's' : ''}* selected!\n\n✍️ *Now write your review* (min 10 characters):`,
-      { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '❌ Cancel', callback_data: 'cancel' }]] } }
-    ).then(m => { s.draft.lastMsgId = m.message_id; });
+    s.draft.lastMsgId = msgId;
+    bot.editMessageText(
+      `⚠️ *Feedback required!*\n\n⭐ *${stars} star${stars > 1 ? 's' : ''}* selected!\n\n✍️ Now type your review below (min 10 characters):`,
+      { chat_id: chatId, message_id: msgId, parse_mode: 'Markdown' }
+    ).catch(() => {});
     return;
   }
 
