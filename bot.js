@@ -315,11 +315,8 @@ bot.on('callback_query', async (query) => {
 
   await bot.answerCallbackQuery(query.id).catch(() => {});
 
-  // Clear buttons on final actions, keep on navigation/viewing
-  const keepButtons = ['browse', 'menu_back', 'my_applications', 'my_jobs', 'noop'];
-  const keepPrefixes = ['view_job_', 'manage_job_', 'worker_job_', 'view_applicants_', 'view_accepted_', 'view_rejected_'];
-  const isKeep = keepButtons.includes(data) || keepPrefixes.some(p => data.startsWith(p));
-  if (!isKeep) {
+  // Always clear buttons from the tapped message, except noop
+  if (data !== 'noop') {
     bot.editMessageReplyMarkup({ inline_keyboard: [] }, { chat_id: chatId, message_id: msgId }).catch(() => {});
   }
 
