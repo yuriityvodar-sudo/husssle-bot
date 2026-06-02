@@ -340,7 +340,10 @@ bot.on('callback_query', async (query) => {
         await db.collection('applications').doc(myApp.docId || `${jobId}_${userId}`).update({ status: 'pending', appliedAt: Date.now() });
         bot.sendMessage(chatId, `✅ *Re-application sent!*\n\n${job.title}\nKES ${job.pay} · ${job.location}\n\nGood luck this time! 🤞`, { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '📬 My applications', callback_data: 'my_applications' }]] } });
         // Notify poster
-        bot.sendMessage(job.posterId, `🔔 *${user.name}* re-applied to your hustle *${job.title}*`, { parse_mode: 'Markdown' }).catch(() => {});
+        bot.sendMessage(job.posterId,
+          `🔔 *${user.name}* re-applied to your hustle *${job.title}*\n\nTap to review:`,
+          { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '👥 Review applicants', callback_data: `view_applicants_${jobId}` }]] } }
+        ).catch(() => {});
         return;
       }
       bot.sendMessage(chatId, '✅ You already applied to this hustle.'); return;
