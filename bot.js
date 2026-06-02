@@ -87,6 +87,10 @@ const BANNED_WORDS = [
   // Explicit/Adult
   'sex', 'porn', 'nude', 'naked', 'escort', 'prostitut',
   'onlyfans', 'adult', 'erotic', 'strip', 'hookup', 'sensual',
+  // Profanity
+  'shit', 'fuck', 'bitch', 'bastard', 'asshole', 'damn',
+  'crap', 'piss', 'dick', 'cock', 'pussy', 'cunt', 'ass ',
+  'suck', 'balls', 'butt', 'arse', 'boob', 'tit',
   // Weapons/Drugs
   'drug', 'cocaine', 'weed', 'gun', 'weapon', 'kill',
   // Spam
