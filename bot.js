@@ -1133,17 +1133,25 @@ async function showApplicants(chatId, userId, jobId) {
     bot.sendMessage(chatId, 'No applications yet.', { reply_markup: { inline_keyboard: [[{ text: '← Back', callback_data: `manage_job_${jobId}` }]] } });
     return;
   }
-  const pending = apps.filter(a => a.status === 'pending');
-  if (!pending.length) {
-    bot.sendMessage(chatId, '✅ You have already accepted an applicant.', { reply_markup: { inline_keyboard: [[{ text: '← Back', callback_data: `manage_job_${jobId}` }]] } });
-    return;
+  const pending  = apps.filter(a => a.status === 'pending');
+  const accepted = apps.filter(a => a.status === 'accepted');
+
+  let text = `👥 *Applicants for "${job.title}"* (${apps.length})\n\n`;
+
+  if (accepted.length) {
+    text += `✅ *Accepted:*\n`;
+    accepted.forEach(a => {
+      text += `• *${a.workerName}* — ${getRatingStars(a.rating, a.ratingCount)}\n📱 ${a.workerPhone}\n\n`;
+    });
   }
 
-  let text = `👥 *Applicants for "${job.title}"*\n\n`;
-  pending.forEach((a, i) => {
-    text += `${i+1}. *${a.workerName}* — ${getRatingStars(a.rating, a.ratingCount)}\n📱 ${a.workerPhone}\n\n`;
-  });
-  text += 'Tap to accept:';
+  if (pending.length) {
+    text += `⏳ *Pending (${pending.length}):*\n`;
+    pending.forEach((a, i) => {
+      text += `${i+1}. *${a.workerName}* — ${getRatingStars(a.rating, a.ratingCount)}\n📱 ${a.workerPhone}\n\n`;
+    });
+    text += 'Tap to accept:';
+  }
 
   const buttons = pending.map(a => ([{ text: `✅ Accept ${a.workerName}`, callback_data: `accept_${jobId}_${a.workerId}` }]));
   buttons.push([{ text: '← Back', callback_data: `manage_job_${jobId}` }]);
