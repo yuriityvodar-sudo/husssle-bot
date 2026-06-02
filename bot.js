@@ -696,7 +696,13 @@ bot.on('callback_query', async (query) => {
     if (!job) { bot.sendMessage(chatId, '❌ Job not found.'); return; }
     const poster = await db.collection('users').doc(String(job.posterId)).get();
     const posterData = poster.exists ? poster.data() : { name: 'Customer', phone: 'N/A' };
-    bot.sendMessage(chatId,
+    // Clear previous worker_job message for this job
+    const s = getSession(userId);
+    const prevWorkerKey = `workerMsg_${jobId}`;
+    if (s.draft[prevWorkerKey]) {
+      bot.editMessageReplyMarkup({ inline_keyboard: [] }, { chat_id: chatId, message_id: s.draft[prevWorkerKey] }).catch(() => {});
+    }
+    const workerViewMsg = await bot.sendMessage(chatId,
       `━━━━━━━━━━━━━━━\n🚨 *ACTIVE JOB* 🚨\n━━━━━━━━━━━━━━━\n\n` +
       `🔨 *${job.title}*\n` +
       `💰 KES ${job.pay}\n` +
@@ -709,6 +715,7 @@ bot.on('callback_query', async (query) => {
         [{ text: '⚠️ Report to admin', callback_data: `report_job_${jobId}` }],
       ]}}
     );
+    s.draft[prevWorkerKey] = workerViewMsg.message_id;
     return;
   }
 
@@ -1400,10 +1407,17 @@ async function showManageJob(chatId, userId, jobId) {
   if (job.status !== 'done') buttons.push([{ text: '🗑️ Delete this job', callback_data: `delete_job_${jobId}` }]);
   buttons.push([{ text: '← My jobs', callback_data: 'my_jobs' }]);
 
-  bot.sendMessage(chatId,
+  // Clear buttons from previous manage message for this job
+  const s = getSession(userId);
+  const prevKey = `manageMsg_${jobId}`;
+  if (s.draft[prevKey]) {
+    bot.editMessageReplyMarkup({ inline_keyboard: [] }, { chat_id: chatId, message_id: s.draft[prevKey] }).catch(() => {});
+  }
+  const sentMsg = await bot.sendMessage(chatId,
     `⚙️ *Manage: ${job.title}*\n\nStatus: ${getJobStatus(job.status)}\nApplicants: ${apps.length}\nPay: KES ${job.pay}`,
     { parse_mode: 'Markdown', reply_markup: { inline_keyboard: buttons } }
   );
+  s.draft[prevKey] = sentMsg.message_id;
 }
 
 async function showApplicants(chatId, userId, jobId) {
