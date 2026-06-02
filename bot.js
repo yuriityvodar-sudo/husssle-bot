@@ -235,7 +235,7 @@ bot.onText(/\/start(?:\s(.+))?/, async (msg, match) => {
   }
 
   bot.sendMessage(msg.chat.id,
-    '👋 *Karibu Husssle!*\n\nThe hustle marketplace for Nairobi.\nFind work or get work done. Simple.\n\nWhat do you want to do?',
+    '👋 *Karibu Husssle!*\n\nThe hustle marketplace for Nairobi.\nFind work or get work done. Simple.\n\n🤖 *This bot is your personal hustle manager:*\n• Post a job → workers apply → you pick the best one\n• Looking for work → browse & apply in seconds\n• Everything happens here — no calls, no WhatsApp groups\n• Get rated after every job to build your reputation\n\nWhat do you want to do?',
     { parse_mode: 'Markdown', reply_markup: mainMenu() }
   );
 });
