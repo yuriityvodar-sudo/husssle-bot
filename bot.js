@@ -26,6 +26,61 @@ const BOT_TOKEN  = process.env.BOT_TOKEN || 'YOUR_BOT_TOKEN_HERE';
 const CHANNEL_ID = '@husssleke';
 const ADMIN_ID   = 889114803;
 
+// ─── Rate Limiter ────────────────────────────────────────────────────────────
+const userActions = {}; // { userId: { count, firstAction, lastAction, blockedUntil } }
+
+function checkRateLimit(userId, chatId) {
+  const now = Date.now();
+  if (!userActions[userId]) {
+    userActions[userId] = { count: 1, firstAction: now, lastAction: now, blockedUntil: 0 };
+    return true;
+  }
+
+  const u = userActions[userId];
+
+  // Check if temp blocked
+  if (u.blockedUntil > now) {
+    const remaining = Math.ceil((u.blockedUntil - now) / 60000);
+    bot.sendMessage(chatId, `🚫 You've been temporarily restricted. Try again in ${remaining} minute(s).`);
+    return false;
+  }
+
+  // Reset counter if more than 1 minute since first action
+  if (now - u.firstAction > 60000) {
+    userActions[userId] = { count: 1, firstAction: now, lastAction: now, blockedUntil: 0 };
+    return true;
+  }
+
+  // Level 1 — same action within 2s: silent ignore
+  if (now - u.lastAction < 2000) {
+    u.lastAction = now;
+    return false;
+  }
+
+  u.count++;
+  u.lastAction = now;
+
+  // Level 4 — 25+ actions: notify admin
+  if (u.count === 25) {
+    bot.sendMessage(ADMIN_ID, `⚠️ *Spam alert*\n\nUser ID: ${userId} is hammering the bot (${u.count} actions in 1 min).`, { parse_mode: 'Markdown' }).catch(() => {});
+  }
+
+  // Level 3 — 15+ actions: temp block for 5 minutes
+  if (u.count >= 15) {
+    u.blockedUntil = now + 5 * 60 * 1000;
+    bot.sendMessage(chatId, '🚫 You have been temporarily restricted for 5 minutes due to too many actions.');
+    return false;
+  }
+
+  // Level 2 — 10+ actions: warn
+  if (u.count >= 10) {
+    bot.sendMessage(chatId, '⚠️ You\'re going too fast. Please slow down.');
+    return true;
+  }
+
+  return true;
+}
+
 const BANNED_WORDS = [
   // Scam/Fraud
   'scam', 'fraud', 'fake', 'cheat', 'steal', 'hack',
@@ -246,6 +301,8 @@ bot.on('callback_query', async (query) => {
   const data   = query.data;
 
   await bot.answerCallbackQuery(query.id).catch(() => {});
+
+  if (!checkRateLimit(userId, chatId)) return;
 
   const user = await getUser(query.from);
   if (user.banned && userId !== ADMIN_ID) {
