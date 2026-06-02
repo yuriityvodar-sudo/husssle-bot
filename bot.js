@@ -1238,7 +1238,13 @@ async function submitApplication(chatId, userId, user, jobId) {
     status:      'pending',
     appliedAt:   Date.now(),
   };
-  await db.collection('applications').doc(`${appData.jobId}_${appData.workerId}`).set(appData);
+  const appRef = db.collection('applications').doc(`${appData.jobId}_${appData.workerId}`);
+  const existing = await appRef.get();
+  if (existing.exists) {
+    bot.sendMessage(chatId, '✅ You already applied to this hustle.');
+    return;
+  }
+  await appRef.set(appData);
 
   // update applicant count on job
   await db.collection('jobs').doc(String(jobId)).update({
