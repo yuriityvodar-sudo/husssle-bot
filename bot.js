@@ -830,12 +830,17 @@ bot.on('callback_query', async (query) => {
     const job   = await getJob(jobId);
     if (!job || job.posterId !== userId) return;
 
-    await db.collection('jobs').doc(String(jobId)).update({ status: 'done' });
+    const deleteAt = Date.now() + 24 * 60 * 60 * 1000;
+    await db.collection('jobs').doc(String(jobId)).update({ status: 'done', deleteAt });
     job.status = 'done';
-    updateChannelPost(job);
+    job.deleteAt = deleteAt;
 
     const apps = await getJobApplications(jobId);
     const acceptedApp = apps.find(a => a.status === 'accepted');
+
+    // Update channel post with completion summary
+    updateDoneChannelPost(job, acceptedApp).catch(() => {});
+
     if (acceptedApp) {
       const appSnap = await db.collection('applications').where('jobId', '==', String(jobId)).where('workerId', '==', acceptedApp.workerId).get();
       appSnap.docs.forEach(doc => doc.ref.update({ status: 'done' }));
@@ -1398,6 +1403,62 @@ async function updateChannelPost(job) {
   }
 }
 
+// ─── Done channel post ────────────────────────────────────────────────────────
+async function updateDoneChannelPost(job, acceptedApp) {
+  if (!job.channelMsgId) return;
+  const workerName   = acceptedApp ? acceptedApp.workerName : 'Unknown';
+  const workerRating = acceptedApp ? getRatingStars(acceptedApp.rating, acceptedApp.ratingCount) : '';
+  const deleteTime   = new Date(job.deleteAt).toLocaleString('en-KE', { timeZone: 'Africa/Nairobi', hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short' });
+
+  const text =
+    `✅ *HUSTLE COMPLETED!*\n\n` +
+    `🔨 *${job.title}*\n` +
+    `💰 KES ${job.pay} earned by *${workerName}*\n` +
+    `${workerRating}\n` +
+    `📍 ${job.location}\n\n` +
+    `👤 Posted by: ${job.posterName} — ${getRatingStars(job.posterRating || 0, job.posterRatingCount || 0)}\n\n` +
+    `🏆 Another successful hustle on Husssle!\n\n` +
+    `⏳ This post will be removed on ${deleteTime}`;
+
+  if (job.photos && job.photos.length === 1) {
+    bot.editMessageCaption(text, { chat_id: CHANNEL_ID, message_id: job.channelMsgId, parse_mode: 'Markdown' }).catch(() => {});
+  } else {
+    bot.editMessageText(text, { chat_id: CHANNEL_ID, message_id: job.channelMsgId, parse_mode: 'Markdown' }).catch(() => {});
+  }
+}
+
+// ─── Cleanup expired done jobs ─────────────────────────────────────────────────
+async function cleanupExpiredJobs() {
+  try {
+    const now  = Date.now();
+    const snap = await db.collection('jobs')
+      .where('status', '==', 'done')
+      .where('deleteAt', '<=', now)
+      .get();
+
+    if (snap.empty) return;
+    console.log(`🧹 Cleaning up ${snap.size} expired job(s)...`);
+
+    for (const doc of snap.docs) {
+      const job = doc.data();
+      // Delete channel message
+      if (job.channelMsgId) {
+        await bot.deleteMessage(CHANNEL_ID, job.channelMsgId).catch(() => {});
+      }
+      // Delete all applications
+      const appsSnap = await db.collection('applications').where('jobId', '==', String(job.id)).get();
+      for (const appDoc of appsSnap.docs) {
+        await appDoc.ref.delete().catch(() => {});
+      }
+      // Delete job
+      await doc.ref.delete();
+      console.log(`✅ Deleted expired job: ${job.title}`);
+    }
+  } catch (e) {
+    console.log('cleanupExpiredJobs error:', e.message);
+  }
+}
+
 console.log('🤖 Husssle bot is running with Firestore...');
 
 bot.setMyCommands([
@@ -1408,3 +1469,7 @@ bot.setMyCommands([
   { command: 'banned', description: 'View banned users' },
   { command: 'admin',  description: 'Completed jobs (admin)' },
 ]).then(() => console.log('✅ Commands set!')).catch(console.error);
+
+// Run cleanup on startup + every 30 minutes
+cleanupExpiredJobs();
+setInterval(cleanupExpiredJobs, 30 * 60 * 1000);
