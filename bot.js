@@ -1301,7 +1301,7 @@ async function publishJob(chatId, userId, user, draft) {
 
   bot.sendMessage(chatId,
     `🎉 *Hustle posted!*\n\n*${job.title}*\nKES ${job.pay} · ${job.location}\n\nYour hustle is now live in the channel!`,
-    { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '📌 Manage my jobs', callback_data: 'my_jobs' }], [{ text: '← Menu', callback_data: 'menu_back' }]] } }
+    { parse_mode: 'Markdown' }
   );
 
   const caption  = formatChannelPost(job);
