@@ -891,7 +891,7 @@ bot.on('callback_query', async (query) => {
 
     if (acceptedApp) {
       const appSnap = await db.collection('applications').where('jobId', '==', String(jobId)).where('workerId', '==', acceptedApp.workerId).get();
-      appSnap.docs.forEach(doc => doc.ref.update({ status: 'done' }));
+      await Promise.all(appSnap.docs.map(doc => doc.ref.update({ status: 'done' })));
 
       // Create pending feedback records for both sides
       const feedbackBase = { jobId: String(jobId), jobTitle: job.title, createdAt: Date.now() };
