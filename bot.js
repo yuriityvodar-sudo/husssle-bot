@@ -1485,7 +1485,7 @@ async function acceptApplicant(chatId, posterId, jobId, workerId) {
 
   bot.sendMessage(chatId,
     `✅ *You accepted ${app.workerName}!*\n\n📱 Their phone: *${app.workerPhone}*\n\nContact them to arrange the work. Once done, mark the job as Done.`,
-    { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '✅ Mark as Done later', callback_data: `manage_job_${jobId}` }]] } }
+    { parse_mode: 'Markdown' }
   );
 
   const workerMsg = await bot.sendMessage(workerId,
