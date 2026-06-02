@@ -450,19 +450,22 @@ bot.on('callback_query', async (query) => {
     // Show each job with its action buttons directly
     for (const j of myJobs) {
       const apps = await getJobApplications(j.id);
+      const pending  = apps.filter(a => a.status === 'pending').length;
+      const accepted = apps.filter(a => a.status === 'accepted').length;
       const buttons = [];
-      if (apps.length)         buttons.push([{ text: `👥 Applicants (${apps.length})`, callback_data: `view_applicants_${j.id}` }]);
+      if (pending)              buttons.push([{ text: `⏳ Pending (${pending})`, callback_data: `view_applicants_${j.id}` }]);
+      if (accepted)             buttons.push([{ text: `✅ Accepted (${accepted})`, callback_data: `view_accepted_${j.id}` }]);
       if (j.status === 'taken') buttons.push([{ text: '✅ Mark as Done', callback_data: `mark_done_${j.id}` }]);
       if (j.status === 'taken') buttons.push([{ text: '🔄 Re-open', callback_data: `reopen_job_${j.id}` }]);
       if (j.status === 'taken') buttons.push([{ text: '❌ Cancel', callback_data: `cancel_job_${j.id}` }]);
       if (j.status !== 'done')  buttons.push([{ text: '🗑️ Delete', callback_data: `delete_job_${j.id}` }]);
+      buttons.push([{ text: '← Menu', callback_data: 'menu_back' }]);
 
       await bot.sendMessage(chatId,
-        `${getJobStatus(j.status)} *${j.title}*\nKES ${j.pay} · ${j.location}\n${j.urgency || ''}\n👥 ${apps.length} applicant(s)`,
+        `${getJobStatus(j.status)} *${j.title}*\nKES ${j.pay} · ${j.location}\n${j.urgency || ''}\n⏳ ${pending} pending · ✅ ${accepted} accepted`,
         { parse_mode: 'Markdown', reply_markup: { inline_keyboard: buttons } }
       );
     }
-    bot.sendMessage(chatId, '─────', { reply_markup: { inline_keyboard: [[{ text: '← Menu', callback_data: 'menu_back' }]] } });
     return;
   }
 
