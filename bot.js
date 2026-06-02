@@ -325,7 +325,16 @@ bot.on('callback_query', async (query) => {
     if (job.status !== 'open')  { bot.sendMessage(chatId, "⚠️ This hustle is no longer open."); return; }
 
     const apps = await getJobApplications(jobId);
-    if (apps.some(a => a.workerId === userId)) {
+    const myApp = apps.find(a => a.workerId === userId);
+    if (myApp) {
+      if (myApp.status === 'rejected') {
+        // Allow one re-apply after rejection
+        await db.collection('applications').doc(myApp.docId || `${jobId}_${userId}`).update({ status: 'pending', appliedAt: Date.now() });
+        bot.sendMessage(chatId, `✅ *Re-application sent!*\n\n${job.title}\nKES ${job.pay} · ${job.location}\n\nGood luck this time! 🤞`, { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '📬 My applications', callback_data: 'my_applications' }]] } });
+        // Notify poster
+        bot.sendMessage(job.posterId, `🔔 *${user.name}* re-applied to your hustle *${job.title}*`, { parse_mode: 'Markdown' }).catch(() => {});
+        return;
+      }
       bot.sendMessage(chatId, '✅ You already applied to this hustle.'); return;
     }
 
@@ -760,6 +769,32 @@ bot.on('callback_query', async (query) => {
     return;
   }
 
+  if (data.startsWith('view_rejected_')) {
+    const jobId = data.replace('view_rejected_', '');
+    const job = await getJob(jobId);
+    if (!job || job.posterId !== userId) return;
+    const apps = await getJobApplications(jobId);
+    const rejected = apps.filter(a => a.status === 'rejected');
+    if (!rejected.length) { bot.sendMessage(chatId, 'No rejected applicants.'); return; }
+    let text = `❌ *Rejected applicants for "${job.title}"*\n\n`;
+    rejected.forEach(a => { text += `• *${a.workerName}* — ${getRatingStars(a.rating, a.ratingCount)}\n📱 ${a.workerPhone}\n\n`; });
+    bot.sendMessage(chatId, text, { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '← Back', callback_data: `manage_job_${jobId}` }]] } });
+    return;
+  }
+
+  if (data.startsWith('view_accepted_')) {
+    const jobId = data.replace('view_accepted_', '');
+    const job = await getJob(jobId);
+    if (!job || job.posterId !== userId) return;
+    const apps = await getJobApplications(jobId);
+    const accepted = apps.filter(a => a.status === 'accepted');
+    if (!accepted.length) { bot.sendMessage(chatId, 'No accepted applicants.'); return; }
+    let text = `✅ *Accepted applicants for "${job.title}"*\n\n`;
+    accepted.forEach(a => { text += `• *${a.workerName}* — ${getRatingStars(a.rating, a.ratingCount)}\n📱 ${a.workerPhone}\n\n`; });
+    bot.sendMessage(chatId, text, { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '← Back', callback_data: `manage_job_${jobId}` }]] } });
+    return;
+  }
+
   if (data.startsWith('accept_')) {
     const parts    = data.split('_');
     const jobId    = parts[1];
@@ -1135,11 +1170,14 @@ async function showJobDetail(chatId, userId, jobId) {
   if (!job) { bot.sendMessage(chatId, '❌ Hustle not found.'); return; }
 
   const apps           = await getJobApplications(jobId);
-  const alreadyApplied = apps.some(a => a.workerId === userId);
+  const myApp        = apps.find(a => a.workerId === userId);
+  const alreadyApplied = myApp && myApp.status !== 'rejected';
+  const wasRejected    = myApp && myApp.status === 'rejected';
   const isOwner        = job.posterId === userId;
 
   let buttons = [];
-  if (!isOwner && !alreadyApplied && job.status === 'open') buttons.push([{ text: "✋ I'll do it!", callback_data: `apply_${jobId}` }]);
+  if (!isOwner && !alreadyApplied && !wasRejected && job.status === 'open') buttons.push([{ text: "✋ I'll do it!", callback_data: `apply_${jobId}` }]);
+  if (wasRejected && job.status === 'open') buttons.push([{ text: '🔄 Re-apply', callback_data: `apply_${jobId}` }]);
   if (alreadyApplied) buttons.push([{ text: '✅ Already applied', callback_data: 'noop' }]);
   if (isOwner)        buttons.push([{ text: '⚙️ Manage this hustle', callback_data: `manage_job_${jobId}` }]);
   if (userId === ADMIN_ID && !isOwner) buttons.push([{ text: `🔐 Ban poster (${job.posterName})`, callback_data: `ban_user_${job.posterId}` }]);
@@ -1167,8 +1205,14 @@ async function showManageJob(chatId, userId, jobId) {
   if (!job || job.posterId !== userId) return;
   const apps = await getJobApplications(jobId);
 
+  const pending  = apps.filter(a => a.status === 'pending');
+  const rejected = apps.filter(a => a.status === 'rejected');
+  const accepted = apps.filter(a => a.status === 'accepted');
+
   const buttons = [];
-  if (apps.length)        buttons.push([{ text: `👥 View applicants (${apps.length})`, callback_data: `view_applicants_${jobId}` }]);
+  if (pending.length)  buttons.push([{ text: `👥 Review pending (${pending.length})`, callback_data: `view_applicants_${jobId}` }]);
+  if (rejected.length) buttons.push([{ text: `❌ View rejected (${rejected.length})`, callback_data: `view_rejected_${jobId}` }]);
+  if (accepted.length) buttons.push([{ text: `✅ View accepted (${accepted.length})`, callback_data: `view_accepted_${jobId}` }]);
   if (job.status === 'taken') buttons.push([{ text: '✅ Mark as Done', callback_data: `mark_done_${jobId}` }]);
   if (job.status === 'taken') buttons.push([{ text: '🔄 Re-open (worker disappeared)', callback_data: `reopen_job_${jobId}` }]);
   if (job.status === 'taken') buttons.push([{ text: '❌ Cancel job (notify worker)', callback_data: `cancel_job_${jobId}` }]);
