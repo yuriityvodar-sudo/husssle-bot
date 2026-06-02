@@ -1365,6 +1365,7 @@ async function updateUserPin(userId) {
     const userData = userDoc.exists ? userDoc.data() : {};
 
     if (userData.pinnedMsgId) {
+      await bot.unpinChatMessage(userId, { message_id: userData.pinnedMsgId }).catch(() => {});
       await bot.deleteMessage(userId, userData.pinnedMsgId).catch(() => {});
     }
 
