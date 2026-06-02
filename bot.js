@@ -170,12 +170,21 @@ async function getUser(from) {
     return user;
   }
   const data = doc.data();
-  // update lang if changed
   const currentLang = getLang(from);
-  if (data.lang !== currentLang) {
-    await ref.update({ lang: currentLang });
-    data.lang = currentLang;
+  const currentName = [from.first_name, from.last_name].filter(Boolean).join(' ');
+  const currentUsername = from.username || null;
+
+  // sync name, username and lang if anything changed
+  const updates = {};
+  if (data.lang !== currentLang)         updates.lang     = currentLang;
+  if (data.name !== currentName)         updates.name     = currentName;
+  if (data.username !== currentUsername) updates.username = currentUsername;
+
+  if (Object.keys(updates).length > 0) {
+    await ref.update(updates);
+    Object.assign(data, updates);
   }
+
   return data;
 }
 
