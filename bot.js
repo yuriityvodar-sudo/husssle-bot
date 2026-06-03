@@ -129,7 +129,7 @@ function getRatingStars(rating, ratingCount) {
 
 function getJobStatus(status) {
   if (status === 'open')  return '🟢 Open';
-  if (status === 'taken') return '🟡 Taken';
+  if (status === 'taken') return '💼 Hired — boots on the ground';
   if (status === 'done')  return '✅ Done';
   return status;
 }
@@ -1581,7 +1581,7 @@ async function showApplicants(chatId, userId, jobId) {
   const apps = await getJobApplications(jobId);
 
   if (!apps.length) {
-    bot.sendMessage(chatId, 'No applications yet.', { reply_markup: { inline_keyboard: [[{ text: '← Back', callback_data: `manage_job_${jobId}` }]] } });
+    bot.sendMessage(chatId, 'No applications yet.');
     return;
   }
   const pending  = apps.filter(a => a.status === 'pending');
