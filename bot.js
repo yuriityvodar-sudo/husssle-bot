@@ -900,6 +900,26 @@ bot.on('callback_query', async (query) => {
     return;
   }
 
+  if (data.startsWith('reject_')) {
+    const parts  = data.split('_');
+    const jobId  = parts[1];
+    const wId    = parseInt(parts[2]);
+    const job    = await getJob(jobId);
+    if (!job || job.posterId !== userId) return;
+    await db.collection('applications').doc(`${jobId}_${wId}`).update({ status: 'rejected' });
+    const workerDoc = await db.collection('users').doc(String(wId)).get();
+    const workerName = workerDoc.exists ? workerDoc.data().name : 'Worker';
+    bot.sendMessage(wId,
+      `ℹ️ Unfortunately, someone else was selected for *${job.title}*.
+
+Keep hustling! 💪`,
+      { parse_mode: 'Markdown' }
+    ).catch(() => {});
+    bot.sendMessage(chatId, `❌ *${workerName}* rejected.`, { parse_mode: 'Markdown' });
+    showApplicants(chatId, userId, jobId);
+    return;
+  }
+
   if (data.startsWith('accept_')) {
     const parts    = data.split('_');
     const jobId    = parts[1];
@@ -1542,8 +1562,10 @@ async function showApplicants(chatId, userId, jobId) {
     });
   }
 
-  const buttons = pending.map(a => ([{ text: `✅ Accept ${a.workerName}`, callback_data: `accept_${jobId}_${a.workerId}` }]));
-  buttons.push([{ text: '← Back', callback_data: `manage_job_${jobId}` }]);
+  const buttons = pending.flatMap(a => ([
+    [{ text: `✅ Accept ${a.workerName}`, callback_data: `accept_${jobId}_${a.workerId}` },
+     { text: `❌ Reject`, callback_data: `reject_${jobId}_${a.workerId}` }]
+  ]));
   bot.sendMessage(chatId, text, { parse_mode: 'Markdown', reply_markup: { inline_keyboard: buttons } });
 }
 
