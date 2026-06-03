@@ -1254,12 +1254,12 @@ Keep hustling! 💪`,
       defaultPinCallback = `manage_job_${hiring[0].id}`;
     }
 
-    // Auto-set default pinnedJobId if not set
+    // Auto-set default pinnedJobId if not set and refresh pin
     if (!pinnedJobId && defaultPinJobId) {
       await db.collection('users').doc(String(userId)).update({ pinnedJobId: defaultPinJobId });
-    }
-    // Auto-fix pin if missing
-    if (!pinnedMsgId) {
+      await updateUserPin(userId);
+    } else if (!pinnedMsgId) {
+      // Pin missing — refresh
       await updateUserPin(userId);
     }
 
