@@ -361,6 +361,7 @@ bot.onText(/\/banned/, async (msg) => {
 
 // ─── Callback query handler ───────────────────────────────────────────────────
 bot.on('callback_query', async (query) => {
+  // Wrap entire handler for better error visibility
   const chatId = query.message.chat.id;
   const msgId  = query.message.message_id;
   const userId = query.from.id;
@@ -1744,7 +1745,7 @@ async function submitCompletionReview(chatId, fromUserId, jobId, toUserId, stars
     const reviewField = role === 'poster' ? 'posterReviewed' : 'workerReviewed';
     await db.collection('jobs').doc(String(jobId)).update({ [reviewField]: true });
 
-    showMenu(chatId, userId, `✅ *Review submitted!* Thanks 🙏\n\n⭐ ${stars} star${stars > 1 ? 's' : ''} — _"${comment}"_`);
+    await showMenu(chatId, fromUserId, `✅ *Review submitted!* Thanks 🙏\n\n⭐ ${stars} star${stars > 1 ? 's' : ''} — _"${comment || ''}"_`);
 
     // Check if both sides have reviewed
     const updatedJob = await getJob(jobId);
@@ -1776,7 +1777,8 @@ async function submitCompletionReview(chatId, fromUserId, jobId, toUserId, stars
       updateDoneChannelPost(updatedJob, acceptedApp).catch(() => {});
     }
   } catch (e) {
-    console.log('submitCompletionReview error:', e.message);
+    console.error('submitCompletionReview error:', e.stack || e.message);
+    bot.sendMessage(chatId, '❌ Something went wrong submitting your review. Please try again.').catch(() => {});
   }
 }
 
@@ -1833,7 +1835,7 @@ async function updateUserPin(userId) {
     await bot.pinChatMessage(userId, pinMsg.message_id, { disable_notification: true }).catch(() => {});
     await db.collection('users').doc(String(userId)).update({ pinnedMsgId: pinMsg.message_id });
   } catch (e) {
-    console.log('updateUserPin error:', e.message);
+    console.error('updateUserPin error:', e.stack || e.message);
   }
 }
 
@@ -1947,7 +1949,7 @@ async function cleanupExpiredJobs() {
       console.log(`✅ Deleted expired job: ${job.title}`);
     }
   } catch (e) {
-    console.log('cleanupExpiredJobs error:', e.message);
+    console.error('cleanupExpiredJobs error:', e.stack || e.message);
   }
 }
 
@@ -1965,3 +1967,11 @@ bot.setMyCommands([
 // Run cleanup on startup + every 30 minutes
 cleanupExpiredJobs();
 setInterval(cleanupExpiredJobs, 30 * 60 * 1000);
+
+// Global error handlers
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection:', reason?.stack || reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught Exception:', err.stack || err.message);
+});
