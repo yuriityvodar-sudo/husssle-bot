@@ -1692,25 +1692,62 @@ async function updateChannelPost(job) {
 // ─── Done channel post ────────────────────────────────────────────────────────
 async function updateDoneChannelPost(job, acceptedApp) {
   if (!job.channelMsgId) return;
-  const workerName   = acceptedApp ? acceptedApp.workerName : 'Unknown';
-  const workerRating = acceptedApp ? getRatingStars(acceptedApp.rating, acceptedApp.ratingCount) : '';
-  const deleteTime   = new Date(job.deleteAt).toLocaleString('en-KE', { timeZone: 'Africa/Nairobi', hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short' });
+  const workerName = acceptedApp ? acceptedApp.workerName : 'Unknown';
+  const deleteTime = new Date(job.deleteAt).toLocaleString('en-KE', { timeZone: 'Africa/Nairobi', hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short' });
 
-  // Fetch poster's totalSpent
-  let posterTotalSpent = job.pay;
+  // Fetch worker data
+  let workerRating = 0, workerRatingCount = 0, workerCompletedJobs = 0;
+  if (acceptedApp) {
+    const workerDoc = await db.collection('users').doc(String(acceptedApp.workerId)).get();
+    if (workerDoc.exists) {
+      const w = workerDoc.data();
+      workerRating = w.rating || 0;
+      workerRatingCount = w.ratingCount || 0;
+      workerCompletedJobs = w.completedJobs || 0;
+    }
+  }
+
+  // Fetch poster data
   const posterDoc = await db.collection('users').doc(String(job.posterId)).get();
-  if (posterDoc.exists) posterTotalSpent = posterDoc.data().totalSpent || job.pay;
+  const posterData = posterDoc.exists ? posterDoc.data() : {};
+  const posterTotalSpent = posterData.totalSpent || 0;
+  const posterRating = posterData.rating || 0;
+  const posterRatingCount = posterData.ratingCount || 0;
+
+  // Fetch latest worker review left by poster
+  let workerReviewText = '';
+  const workerReviewSnap = await db.collection('users').doc(String(acceptedApp?.workerId))
+    .collection('reviews').orderBy('createdAt', 'desc').limit(1).get();
+  if (!workerReviewSnap.empty) {
+    const r = workerReviewSnap.docs[0].data();
+    const stars = n => '⭐'.repeat(n) + '☆'.repeat(5 - n);
+    workerReviewText = `\n💬 *Worker review:*\n${stars(r.stars)} _"${r.comment}"_ — ${r.fromName}`;
+  }
+
+  // Fetch latest poster review left by worker
+  let posterReviewText = '';
+  const posterReviewSnap = await db.collection('users').doc(String(job.posterId))
+    .collection('reviews').orderBy('createdAt', 'desc').limit(1).get();
+  if (!posterReviewSnap.empty) {
+    const r = posterReviewSnap.docs[0].data();
+    const stars = n => '⭐'.repeat(n) + '☆'.repeat(5 - n);
+    posterReviewText = `\n💬 *Customer review:*\n${stars(r.stars)} _"${r.comment}"_ — ${r.fromName}`;
+  }
+
+  const workerStars = getRatingStars(workerRating, workerRatingCount);
+  const posterStars = getRatingStars(posterRating, posterRatingCount);
 
   const text =
     `✅ *HUSTLE COMPLETED!*\n\n` +
-    `🔨 *${job.title}*\n` +
+    `🔨 *${job.title}* — ${job.location}\n\n` +
     `💰 KES ${job.pay} earned by *${workerName}*\n` +
-    `${workerRating}\n` +
-    `📍 ${job.location}\n\n` +
-    `👤 Posted by: ${job.posterName} — ${getRatingStars(job.posterRating || 0, job.posterRatingCount || 0)}\n` +
-    `💵 Has paid out KES ${posterTotalSpent.toLocaleString()} to workers on Husssle\n\n` +
-    `🏆 Another successful hustle on Husssle!\n\n` +
-    `⏳ This post will be removed on ${deleteTime}`;
+    `${workerStars} · ${workerRatingCount} reviews` + (workerCompletedJobs > 0 ? ` · ${workerCompletedJobs} jobs done` : '') + `\n\n` +
+    `👤 Posted by ${job.posterName}\n` +
+    `${posterStars} · ${posterRatingCount} reviews` + (posterTotalSpent > 0 ? ` · KES ${posterTotalSpent.toLocaleString()} paid out to workers on Husssle` : '') + `\n` +
+    workerReviewText +
+    posterReviewText +
+    `\n\n🤝 Another hustle done in Nairobi!\n` +
+    `⏳ Removed on ${deleteTime}`;
 
   if (job.photos && job.photos.length === 1) {
     bot.editMessageCaption(text, { chat_id: CHANNEL_ID, message_id: job.channelMsgId, parse_mode: 'Markdown' }).catch(() => {});
