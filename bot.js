@@ -1379,6 +1379,18 @@ async function showJobDetail(chatId, userId, jobId) {
   const wasRejected    = myApp && myApp.status === 'rejected';
   const isOwner        = job.posterId === userId;
 
+  // Fetch last 3 reviews of the poster
+  const reviewsSnap = await db.collection('users').doc(String(job.posterId))
+    .collection('reviews').orderBy('createdAt', 'desc').limit(3).get();
+  let reviewsText = '';
+  if (!reviewsSnap.empty) {
+    const stars = n => '⭐'.repeat(n) + '☆'.repeat(5 - n);
+    reviewsText = '\n\n💬 *Recent reviews:*\n' + reviewsSnap.docs.map(d => {
+      const r = d.data();
+      return `${stars(r.stars)} _"${r.comment}"_ — ${r.fromName}`;
+    }).join('\n');
+  }
+
   let buttons = [];
   if (!isOwner && !alreadyApplied && !wasRejected && job.status === 'open') buttons.push([{ text: "✋ I'll do it!", callback_data: `apply_${jobId}` }]);
   if (wasRejected && job.status === 'open') buttons.push([{ text: '🔄 Re-apply', callback_data: `apply_${jobId}` }]);
@@ -1386,7 +1398,6 @@ async function showJobDetail(chatId, userId, jobId) {
   if (isOwner)        buttons.push([{ text: '⚙️ Manage this hustle', callback_data: `manage_job_${jobId}` }]);
   if (userId === ADMIN_ID && !isOwner) buttons.push([{ text: `🔐 Ban poster (${job.posterName})`, callback_data: `ban_user_${job.posterId}` }]);
   if (userId === ADMIN_ID && job.status === 'done') buttons.push([{ text: '🗑️ Delete (admin)', callback_data: `admin_delete_${jobId}` }]);
-  buttons.push([{ text: '← Back to list', callback_data: 'browse' }]);
 
   const text =
     `💼 *${job.title}*\n\n` +
@@ -1395,7 +1406,8 @@ async function showJobDetail(chatId, userId, jobId) {
     `📍 ${job.location}\n` +
     `📌 ${getJobStatus(job.status)}\n` +
     `👤 ${job.posterName} — ${getRatingStars(job.posterRating, job.posterRatingCount)}\n` +
-    `👥 ${apps.length} applicant(s)`;
+    `👥 ${apps.length} applicant(s)` +
+    reviewsText;
 
   if (job.photos && job.photos.length > 0) {
     bot.sendPhoto(chatId, job.photos[0], { caption: text, parse_mode: 'Markdown', reply_markup: { inline_keyboard: buttons } });
