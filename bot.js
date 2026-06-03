@@ -171,7 +171,7 @@ async function formatChannelPost(job) {
 function mainMenu() {
   return {
     inline_keyboard: [
-      [{ text: "🔴 Live · see what's happening 🔴", callback_data: 'live_now' }, { text: '➕ Post a hustle', callback_data: 'post_start' }],
+      [{ text: '🔴 Husssle Live 🔴', callback_data: 'live_now' }, { text: '➕ Post a hustle', callback_data: 'post_start' }],
       [{ text: "🤲 Hustles I'm doing", callback_data: 'my_applications' }, { text: '💼 Hustles I posted', callback_data: 'my_jobs' }],
     ]
   };
