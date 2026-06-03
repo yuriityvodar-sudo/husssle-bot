@@ -140,6 +140,7 @@ function formatChannelPost(job) {
     `📍 ${job.location}\n` +
     `${job.urgency || '⏰ Flexible'}\n\n` +
     `👤 Posted by: ${job.posterName} — ${getRatingStars(job.posterRating || 0, job.posterRatingCount || 0)}\n` +
+    (job.posterTotalSpent ? `💵 Has paid out KES ${Number(job.posterTotalSpent).toLocaleString()} to workers\n` : '') +
     `📌 Status: ${getJobStatus(job.status)}\n` +
     `🆔 Job: #${job.id}`
   );
@@ -909,6 +910,14 @@ bot.on('callback_query', async (query) => {
       const appSnap = await db.collection('applications').where('jobId', '==', String(jobId)).where('workerId', '==', acceptedApp.workerId).get();
       await Promise.all(appSnap.docs.map(doc => doc.ref.update({ status: 'done' })));
 
+      // Increment worker's total earned + poster's total spent
+      await db.collection('users').doc(String(acceptedApp.workerId)).update({
+        totalEarned: admin.firestore.FieldValue.increment(job.pay)
+      });
+      await db.collection('users').doc(String(userId)).update({
+        totalSpent: admin.firestore.FieldValue.increment(job.pay)
+      });
+
       // Create pending feedback records for both sides
       const feedbackBase = { jobId: String(jobId), jobTitle: job.title, createdAt: Date.now() };
       await db.collection('pendingFeedback').doc(`${jobId}_${userId}_poster`).set({
@@ -1301,8 +1310,9 @@ async function publishJob(chatId, userId, user, draft) {
     photos:           draft.photos || [],
     posterId:         userId,
     posterName:       user.name,
-    posterRating:     user.rating || 0,
+    posterRating:      user.rating || 0,
     posterRatingCount: user.ratingCount || 0,
+    posterTotalSpent:  user.totalSpent || 0,
     status:           'open',
     urgency:          draft.urgency || '⏰ Flexible',
     applicantCount:   0,
@@ -1593,13 +1603,19 @@ async function updateDoneChannelPost(job, acceptedApp) {
   const workerRating = acceptedApp ? getRatingStars(acceptedApp.rating, acceptedApp.ratingCount) : '';
   const deleteTime   = new Date(job.deleteAt).toLocaleString('en-KE', { timeZone: 'Africa/Nairobi', hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short' });
 
+  // Fetch poster's totalSpent
+  let posterTotalSpent = job.pay;
+  const posterDoc = await db.collection('users').doc(String(job.posterId)).get();
+  if (posterDoc.exists) posterTotalSpent = posterDoc.data().totalSpent || job.pay;
+
   const text =
     `✅ *HUSTLE COMPLETED!*\n\n` +
     `🔨 *${job.title}*\n` +
     `💰 KES ${job.pay} earned by *${workerName}*\n` +
     `${workerRating}\n` +
     `📍 ${job.location}\n\n` +
-    `👤 Posted by: ${job.posterName} — ${getRatingStars(job.posterRating || 0, job.posterRatingCount || 0)}\n\n` +
+    `👤 Posted by: ${job.posterName} — ${getRatingStars(job.posterRating || 0, job.posterRatingCount || 0)}\n` +
+    `💵 Has paid out KES ${posterTotalSpent.toLocaleString()} to workers on Husssle\n\n` +
     `🏆 Another successful hustle on Husssle!\n\n` +
     `⏳ This post will be removed on ${deleteTime}`;
 
