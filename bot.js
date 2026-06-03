@@ -769,7 +769,6 @@ bot.on('callback_query', async (query) => {
     const parts = data.replace('confirm_phone_accept_', '').split('_');
     const jobId = parts[0];
     const workerId = parseInt(parts[1]);
-    console.log(`confirm_phone_accept: jobId=${jobId}, workerId=${workerId}, userId=${userId}`);
     await acceptApplicant(chatId, userId, jobId, workerId);
     return;
   }
@@ -1030,10 +1029,10 @@ Keep hustling! 💪`,
     s.draft.photos = [];
     s.step = 'post_photo';
     bot.sendMessage(chatId,
-      `✅ *Availability:* ${s.draft.urgency}\n\n📷 *Send photos of the job!*\n\nYou can send up to 5 photos one by one.\nWhen done tap *DONE* or tap SKIP for no photos.`,
+      `✅ *Availability:* ${s.draft.urgency}\n\n📷 *Send photos of the job!*\n\nYou can send up to 5 photos one by one. When done tap *DONE* to post.`,
       { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [
-        [{ text: '✅ DONE — post now',  callback_data: 'post_photos_done' }],
-        [{ text: 'SKIP — no photos',   callback_data: 'post_skip_photo' }],
+        [{ text: '✅ DONE — post now', callback_data: 'post_photos_done' }],
+        [{ text: '❌ Cancel',          callback_data: 'cancel' }],
       ]}}
     );
     return;
@@ -1289,7 +1288,7 @@ bot.on('message', async (msg) => {
       publishJob(chatId, userId, user, s.draft);
       clearSession(userId);
     } else {
-      bot.sendMessage(chatId, '⚠️ Please send a photo or tap DONE/SKIP.');
+      bot.sendMessage(chatId, '⚠️ Please send a photo or tap DONE to post.');
     }
     return;
   }
