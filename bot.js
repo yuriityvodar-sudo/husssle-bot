@@ -177,6 +177,21 @@ function mainMenu() {
   };
 }
 
+async function showMenu(chatId, userId, text = 'What do you want to do?') {
+  const userDoc = await db.collection('users').doc(String(userId)).get();
+  const menuMsgId = userDoc.exists ? userDoc.data().menuMsgId : null;
+  if (menuMsgId) {
+    try {
+      await bot.editMessageText(text, { chat_id: chatId, message_id: menuMsgId, parse_mode: 'Markdown', reply_markup: mainMenu() });
+      return;
+    } catch (e) {
+      // Message too old or deleted — fall through to send new
+    }
+  }
+  const sent = await bot.sendMessage(chatId, text, { parse_mode: 'Markdown', reply_markup: mainMenu() });
+  await db.collection('users').doc(String(userId)).update({ menuMsgId: sent.message_id }).catch(() => {});
+}
+
 // ─── DB helpers ───────────────────────────────────────────────────────────────
 async function getUser(from) {
   const ref = db.collection('users').doc(String(from.id));
@@ -274,14 +289,11 @@ bot.onText(/\/start(?:\s(.+))?/, async (msg, match) => {
     return;
   }
 
-  bot.sendMessage(msg.chat.id,
-    '👋 *Karibu Husssle!*\n\nThe hustle marketplace for Nairobi.\nFind work or get work done. Simple.\n\n🤖 *This bot is your personal hustle manager:*\n• Post a job → workers apply → you pick the best one\n• Looking for work → browse & apply in seconds\n• Everything happens here — no calls, no WhatsApp groups\n• Get rated after every job to build your reputation\n\nWhat do you want to do?',
-    { parse_mode: 'Markdown', reply_markup: mainMenu() }
-  );
+  showMenu(msg.chat.id, msg.from.id, '👋 *Karibu Husssle!*\n\nThe hustle marketplace for Nairobi.\nFind work or get work done. Simple.\n\n🤖 *This bot is your personal hustle manager:*\n• Post a job → workers apply → you pick the best one\n• Looking for work → browse & apply in seconds\n• Everything happens here — no calls, no WhatsApp groups\n• Get rated after every job to build your reputation\n\nWhat do you want to do?');
 });
 
 bot.onText(/\/menu/, (msg) => {
-  bot.sendMessage(msg.chat.id, 'Main menu:', { reply_markup: mainMenu() });
+  showMenu(msg.chat.id, msg.from.id);
 });
 
 bot.onText(/\/work/, (msg) => {
@@ -589,7 +601,7 @@ bot.on('callback_query', async (query) => {
       await db.collection('users').doc(String(uid)).update({ pinnedMsgId: null }).catch(() => {});
       updateUserPin(uid).catch(() => {});
     }
-    bot.sendMessage(chatId, `✅ Job "${job.title}" deleted.`, { reply_markup: mainMenu() });
+    showMenu(chatId, userId, `✅ Job *"${job.title}"* deleted.`);
     return;
   }
 
@@ -951,7 +963,7 @@ Keep hustling! 💪`,
       // No worker, just close it
       const deleteAt = Date.now() + 24 * 60 * 60 * 1000;
       await db.collection('jobs').doc(String(jobId)).update({ status: 'done', deleteAt });
-      bot.sendMessage(chatId, '✅ Job marked as Done!', { reply_markup: mainMenu() });
+      showMenu(chatId, userId, '✅ Job marked as Done!');
       return;
     }
 
@@ -1113,12 +1125,12 @@ Keep hustling! 💪`,
 
   if (data === 'cancel') {
     clearSession(userId);
-    bot.sendMessage(chatId, '❌ Cancelled.', { reply_markup: mainMenu() });
+    showMenu(chatId, userId, '❌ Cancelled.');
     return;
   }
 
   if (data === 'menu_back') {
-    bot.sendMessage(chatId, 'Main menu:', { reply_markup: mainMenu() });
+    showMenu(chatId, userId);
     return;
   }
 });
@@ -1214,7 +1226,7 @@ bot.on('message', async (msg) => {
     await db.collection('pendingFeedback').doc(fbDocId).delete().catch(() => {});
     if (s.draft.lastMsgId) bot.editMessageReplyMarkup({ inline_keyboard: [] }, { chat_id: chatId, message_id: s.draft.lastMsgId }).catch(() => {});
     clearSession(userId);
-    bot.sendMessage(chatId, `✅ *Review submitted!*\n\n⭐ ${reviewStars} star${reviewStars > 1 ? 's' : ''} — "${text}"\n\nThanks for the feedback! 🙏`, { parse_mode: 'Markdown', reply_markup: mainMenu() });
+    showMenu(chatId, userId, `✅ *Review submitted!*\n\n⭐ ${reviewStars} star${reviewStars > 1 ? 's' : ''} — "${text}"\n\nThanks for the feedback! 🙏`);
     return;
   }
 
@@ -1724,7 +1736,7 @@ async function submitCompletionReview(chatId, fromUserId, jobId, toUserId, stars
     const reviewField = role === 'poster' ? 'posterReviewed' : 'workerReviewed';
     await db.collection('jobs').doc(String(jobId)).update({ [reviewField]: true });
 
-    bot.sendMessage(chatId, `✅ *Review submitted!* Thanks 🙏\n\n⭐ ${stars} star${stars > 1 ? 's' : ''} — _"${comment}"_`, { parse_mode: 'Markdown', reply_markup: mainMenu() });
+    showMenu(chatId, userId, `✅ *Review submitted!* Thanks 🙏\n\n⭐ ${stars} star${stars > 1 ? 's' : ''} — _"${comment}"_`);
 
     // Check if both sides have reviewed
     const updatedJob = await getJob(jobId);
