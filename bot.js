@@ -1802,16 +1802,16 @@ async function updateDoneChannelPost(job, acceptedApp) {
     posterReviewText = `\n💬 *Customer review:*\n${stars(r.stars)} _"${r.comment}"_ — ${r.fromName}`;
   }
 
-  const workerStars = getRatingStars(workerRating, workerRatingCount);
-  const posterStars = getRatingStars(posterRating, posterRatingCount);
+  const workerRatingDisplay = workerRating > 0 ? `⭐ ${(workerRating / workerRatingCount).toFixed(1)} · ${workerRatingCount} reviews` : '⭐ New';
+  const posterRatingDisplay = posterRating > 0 ? `⭐ ${(posterRating / posterRatingCount).toFixed(1)} · ${posterRatingCount} reviews` : '⭐ New';
 
   const text =
     `✅ *HUSTLE COMPLETED!*\n\n` +
     `🔨 *${job.title}* — ${job.location}\n\n` +
     `💰 KES ${job.pay} earned by *${workerName}*\n` +
-    `${workerStars} · ${workerRatingCount} reviews` + (workerCompletedJobs > 0 ? ` · ${workerCompletedJobs} jobs done` : '') + `\n\n` +
+    `${workerRatingDisplay}` + (workerCompletedJobs > 0 ? ` · ${workerCompletedJobs} jobs done` : '') + `\n\n` +
     `👤 Posted by ${job.posterName}\n` +
-    `${posterStars} · ${posterRatingCount} reviews` + (posterTotalSpent > 0 ? ` · KES ${posterTotalSpent.toLocaleString()} paid out to workers on Husssle` : '') + `\n` +
+    `${posterRatingDisplay}` + (posterTotalSpent > 0 ? ` · KES ${posterTotalSpent.toLocaleString()} paid out to workers on Husssle` : '') + `\n` +
     workerReviewText +
     posterReviewText +
     `\n\n🤝 Another hustle done in Nairobi!\n` +
