@@ -180,13 +180,9 @@ function mainMenu() {
 async function showMenu(chatId, userId, text = 'What do you want to do?') {
   const userDoc = await db.collection('users').doc(String(userId)).get();
   const menuMsgId = userDoc.exists ? userDoc.data().menuMsgId : null;
+  // Delete old menu message first
   if (menuMsgId) {
-    try {
-      await bot.editMessageText(text, { chat_id: chatId, message_id: menuMsgId, parse_mode: 'Markdown', reply_markup: mainMenu() });
-      return;
-    } catch (e) {
-      // Message too old or deleted — fall through to send new
-    }
+    await bot.deleteMessage(chatId, menuMsgId).catch(() => {});
   }
   const sent = await bot.sendMessage(chatId, text, { parse_mode: 'Markdown', reply_markup: mainMenu() });
   await db.collection('users').doc(String(userId)).update({ menuMsgId: sent.message_id }).catch(() => {});
