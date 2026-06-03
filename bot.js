@@ -959,7 +959,7 @@ Keep hustling! 💪`,
     bot.sendMessage(acceptedApp.workerId,
       `✅ *Job Completion Request*\n\n*${job.posterName}* says the job *${job.title}* is done.\n\nDo you confirm?`,
       { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [
-        [{ text: '✅ Yes, it's done!', callback_data: `worker_confirm_done_${jobId}_${userId}` }],
+        [{ text: "✅ Yes, it's done!", callback_data: `worker_confirm_done_${jobId}_${userId}` }],
         [{ text: '❌ Not yet', callback_data: `worker_decline_done_${jobId}_${userId}` }],
       ]}}
     ).catch(() => {});
@@ -1789,12 +1789,15 @@ async function updateUserPin(userId) {
 async function updateChannelPost(job) {
   if (!job.channelMsgId) return;
   const text = await formatChannelPost(job);
-  // For multi-photo jobs, channelMsgId is a text message (the one with the button)
-  // For single photo or no photo, it's the photo/text message
+  const applyUrl = `https://t.me/nbohussle_bot?start=apply_${job.id}`;
+  const keyboard = job.status === 'open'
+    ? { inline_keyboard: [[{ text: "✋ I'll do it!", url: applyUrl }]] }
+    : { inline_keyboard: [] };
+
   if (job.photos && job.photos.length === 1) {
-    bot.editMessageCaption(text, { chat_id: CHANNEL_ID, message_id: job.channelMsgId, parse_mode: 'Markdown' }).catch(() => {});
+    bot.editMessageCaption(text, { chat_id: CHANNEL_ID, message_id: job.channelMsgId, parse_mode: 'Markdown', reply_markup: keyboard }).catch(() => {});
   } else {
-    bot.editMessageText(text, { chat_id: CHANNEL_ID, message_id: job.channelMsgId, parse_mode: 'Markdown' }).catch(() => {});
+    bot.editMessageText(text, { chat_id: CHANNEL_ID, message_id: job.channelMsgId, parse_mode: 'Markdown', reply_markup: keyboard }).catch(() => {});
   }
 }
 
