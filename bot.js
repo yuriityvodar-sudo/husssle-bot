@@ -558,10 +558,18 @@ bot.on('callback_query', async (query) => {
       await bot.deleteMessage(CHANNEL_ID, job.channelMsgId).catch(() => {});
     }
     const apps = await getJobApplications(jobId);
+    const affectedUserIds = new Set([job.posterId]);
     for (const app of apps) {
+      if (app.status === 'accepted') affectedUserIds.add(app.workerId);
       await db.collection('applications').doc(app.docId).delete().catch(() => {});
     }
     await db.collection('jobs').doc(String(jobId)).delete();
+    // Clear pins for poster and accepted worker
+    for (const uid of affectedUserIds) {
+      await bot.unpinAllChatMessages(uid).catch(() => {});
+      await db.collection('users').doc(String(uid)).update({ pinnedMsgId: null }).catch(() => {});
+      updateUserPin(uid).catch(() => {});
+    }
     bot.sendMessage(chatId, `✅ Job "${job.title}" deleted.`, { reply_markup: mainMenu() });
     return;
   }
