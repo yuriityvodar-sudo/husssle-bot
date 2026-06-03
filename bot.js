@@ -151,7 +151,7 @@ async function formatChannelPost(job) {
   }
 
   const statusText = job.status === 'open' ? '🟢 Looking for someone to do this' :
-                     job.status === 'taken' ? '🔨 In progress' :
+                     job.status === 'taken' ? '💼 Hired — boots on the ground' :
                      job.status === 'done'  ? '✅ Done' : '🟢 Open';
 
   return (
