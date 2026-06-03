@@ -769,7 +769,8 @@ bot.on('callback_query', async (query) => {
     const parts = data.replace('confirm_phone_accept_', '').split('_');
     const jobId = parts[0];
     const workerId = parseInt(parts[1]);
-    acceptApplicant(chatId, userId, jobId, workerId);
+    console.log(`confirm_phone_accept: jobId=${jobId}, workerId=${workerId}, userId=${userId}`);
+    await acceptApplicant(chatId, userId, jobId, workerId);
     return;
   }
 
