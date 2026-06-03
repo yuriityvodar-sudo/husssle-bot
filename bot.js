@@ -1458,14 +1458,13 @@ async function showManageJob(chatId, userId, jobId) {
   const accepted = apps.filter(a => a.status === 'accepted');
 
   const buttons = [];
-  if (pending.length)  buttons.push([{ text: `👥 Review pending (${pending.length})`, callback_data: `view_applicants_${jobId}` }]);
+  if (pending.length)  buttons.push([{ text: `👥 ${pending.length} applicant${pending.length > 1 ? 's' : ''} waiting — Review now`, callback_data: `view_applicants_${jobId}` }]);
   if (rejected.length) buttons.push([{ text: `❌ View rejected (${rejected.length})`, callback_data: `view_rejected_${jobId}` }]);
   if (accepted.length) buttons.push([{ text: `✅ View accepted (${accepted.length})`, callback_data: `view_accepted_${jobId}` }]);
   if (job.status === 'taken') buttons.push([{ text: '✅ Mark as Done', callback_data: `mark_done_${jobId}` }]);
   if (job.status === 'taken') buttons.push([{ text: '🔄 Re-open (worker disappeared)', callback_data: `reopen_job_${jobId}` }]);
   if (job.status === 'taken') buttons.push([{ text: '❌ Cancel job (notify worker)', callback_data: `cancel_job_${jobId}` }]);
   if (job.status !== 'done') buttons.push([{ text: '🗑️ Delete this job', callback_data: `delete_job_${jobId}` }]);
-  buttons.push([{ text: '← My jobs', callback_data: 'my_jobs' }]);
 
   // Clear buttons from previous manage message for this job
   const s = getSession(userId);
