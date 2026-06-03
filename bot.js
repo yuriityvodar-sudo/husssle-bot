@@ -556,59 +556,39 @@ bot.on('callback_query', async (query) => {
   }
 
   if (data === 'my_applications') {
-    // Worker side
     const apps = await getUserApplications(userId);
     const active   = apps.filter(a => a.status === 'accepted');
     const pending  = apps.filter(a => a.status === 'pending');
     const rejected = apps.filter(a => a.status === 'rejected');
 
-    // Poster side — active posted jobs
-    const postedSnap = await db.collection('jobs')
-      .where('posterId', '==', userId)
-      .where('status', 'in', ['open', 'taken'])
-      .get();
-    const postedJobs = postedSnap.docs.map(d => d.data());
-
-    const hasAnything = active.length || pending.length || rejected.length || postedJobs.length;
-
-    if (!hasAnything) {
+    if (!active.length && !pending.length && !rejected.length) {
       await showState(chatId, userId,
-        `📬 *My Active Jobs*\n\nYou have no active jobs or applications.`,
+        `📬 *My Applications*\n\nYou haven't applied to any hustles yet.`,
         { reply_markup: { inline_keyboard: [[{ text: '← Menu', callback_data: 'menu_back' }]] } }
       );
       return;
     }
 
-    let text = '📬 *My Active Jobs*\n\n';
+    let text = '📬 *My Applications*\n\n';
     const buttons = [];
 
-    if (postedJobs.length) {
-      text += '📌 *Jobs I posted:*\n';
-      postedJobs.forEach(j => {
-        const statusIcon = j.status === 'open' ? '🟢' : '🟡';
-        text += `${statusIcon} *${j.title}* · KES ${j.pay}\n`;
-        buttons.push([{ text: `${statusIcon} ${j.title} — KES ${j.pay}`, callback_data: `manage_job_${j.id}` }]);
-      });
-      text += '\n';
-    }
-
     if (active.length) {
-      text += '🔨 *Jobs I\'m working on:*\n';
+      text += '🔨 *Active (working):*\n';
       active.forEach(a => {
-        text += `🔨 *${a.jobTitle}* · KES ${a.jobPay}\n`;
+        text += `• *${a.jobTitle}* · KES ${a.jobPay}\n`;
         buttons.push([{ text: `🔨 ${a.jobTitle} — KES ${a.jobPay}`, callback_data: `worker_job_${a.jobId}` }]);
       });
       text += '\n';
     }
 
     if (pending.length) {
-      text += `⏳ *Pending applications (${pending.length})*\n`;
+      text += `⏳ *Pending (${pending.length}):*\n`;
       pending.forEach(a => { text += `• ${a.jobTitle} · KES ${a.jobPay}\n`; });
       text += '\n';
     }
 
     if (rejected.length) {
-      text += `❌ *Not selected (${rejected.length})*\n`;
+      text += `❌ *Not selected (${rejected.length}):*\n`;
       rejected.forEach(a => { text += `• ${a.jobTitle}\n`; });
     }
 
@@ -618,34 +598,34 @@ bot.on('callback_query', async (query) => {
   }
 
   if (data === 'my_jobs') {
-    const myJobs = await getUserJobs(userId);
+    const allJobs = await getUserJobs(userId);
+    const myJobs = allJobs.filter(j => j.status === 'open' || j.status === 'taken');
+
     if (!myJobs.length) {
       await showState(chatId, userId,
-        `📌 *Your Posted Hustles*\n\nYou haven't posted anything yet.`,
-        { reply_markup: { inline_keyboard: [[{ text: '➕ Post a hustle', callback_data: 'post_start' }]] } }
+        `📌 *My Posted Jobs*\n\nNo active posted jobs.`,
+        { reply_markup: { inline_keyboard: [[{ text: '➕ Post a hustle', callback_data: 'post_start' }, { text: '← Menu', callback_data: 'menu_back' }]] } }
       );
       return;
     }
 
-    // Show each job with its action buttons directly
+    let text = '📌 *My Posted Jobs*\n\n';
+    const buttons = [];
+
     for (const j of myJobs) {
       const apps = await getJobApplications(j.id);
       const pending  = apps.filter(a => a.status === 'pending').length;
       const accepted = apps.filter(a => a.status === 'accepted').length;
-      const buttons = [];
-      if (pending)              buttons.push([{ text: `⏳ Pending (${pending})`, callback_data: `view_applicants_${j.id}` }]);
-      if (accepted)             buttons.push([{ text: `✅ Accepted (${accepted})`, callback_data: `view_accepted_${j.id}` }]);
-      if (j.status === 'taken') buttons.push([{ text: '✅ Mark as Done', callback_data: `mark_done_${j.id}` }]);
-      if (j.status === 'taken') buttons.push([{ text: '🔄 Re-open', callback_data: `reopen_job_${j.id}` }]);
-      if (j.status === 'taken') buttons.push([{ text: '❌ Cancel', callback_data: `cancel_job_${j.id}` }]);
-      if (j.status !== 'done')  buttons.push([{ text: '🗑️ Delete', callback_data: `delete_job_${j.id}` }]);
-      buttons.push([{ text: '← Menu', callback_data: 'menu_back' }]);
-
-      await bot.sendMessage(chatId,
-        `${getJobStatus(j.status)} *${j.title}*\nKES ${j.pay} · ${j.location}\n${j.urgency || ''}\n⏳ ${pending} pending · ✅ ${accepted} accepted`,
-        { parse_mode: 'Markdown', reply_markup: { inline_keyboard: buttons } }
-      );
+      const statusIcon = j.status === 'open' ? '🟢' : '🟡';
+      text += `${statusIcon} *${j.title}* · KES ${j.pay}\n`;
+      if (pending) text += `   ⏳ ${pending} waiting\n`;
+      if (accepted) text += `   ✅ ${accepted} accepted\n`;
+      text += '\n';
+      buttons.push([{ text: `${statusIcon} Manage: ${j.title}`, callback_data: `manage_job_${j.id}` }]);
     }
+
+    buttons.push([{ text: '← Menu', callback_data: 'menu_back' }]);
+    await showState(chatId, userId, text, { reply_markup: { inline_keyboard: buttons } });
     return;
   }
 
