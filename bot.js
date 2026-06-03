@@ -171,9 +171,10 @@ async function formatChannelPost(job) {
 function mainMenu() {
   return {
     inline_keyboard: [
-      [{ text: '➕ Post a hustle',       callback_data: 'post_start' }],
-      [{ text: "🤲 Hustles I'm doing",   callback_data: 'my_applications' }],
-      [{ text: '💼 Hustles I posted',    callback_data: 'my_jobs' }],
+      [{ text: "🔴 Live · see what's happening", callback_data: 'live_now' }],
+      [{ text: '➕ Post a hustle',                callback_data: 'post_start' }],
+      [{ text: "🤲 Hustles I'm doing",            callback_data: 'my_applications' }],
+      [{ text: '💼 Hustles I posted',             callback_data: 'my_jobs' }],
     ]
   };
 }
@@ -1201,6 +1202,54 @@ Keep hustling! 💪`,
 
   if (data === 'menu_back') {
     showMenu(chatId, userId);
+    return;
+  }
+
+  if (data === 'live_now') {
+    // Jobs I'm working on (accepted as worker)
+    const workerApps = await getUserApplications(userId);
+    const working = workerApps.filter(a => a.status === 'accepted');
+
+    // Jobs someone is working for me (taken as poster)
+    const takenSnap = await db.collection('jobs')
+      .where('posterId', '==', userId)
+      .where('status', '==', 'taken')
+      .get();
+    const hiring = takenSnap.docs.map(d => d.data());
+
+    if (!working.length && !hiring.length) {
+      await showState(chatId, userId,
+        `🔴 *Live · see what's happening*\n\nNothing active right now.\n\nPost a hustle or apply to one to get started!`,
+        { reply_markup: { inline_keyboard: [
+          [{ text: '➕ Post a hustle', callback_data: 'post_start' }],
+          [{ text: '← Menu', callback_data: 'menu_back' }],
+        ]}}
+      );
+      return;
+    }
+
+    let text = '🔴 *Live · see what\'s happening*\n\n';
+    const buttons = [];
+
+    if (hiring.length) {
+      text += '👔 *Someone\'s working for you:*\n';
+      hiring.forEach(j => {
+        text += `• *${j.title}* · KES ${j.pay}\n`;
+        buttons.push([{ text: `👔 ${j.title} — KES ${j.pay}`, callback_data: `manage_job_${j.id}` }]);
+      });
+      text += '\n';
+    }
+
+    if (working.length) {
+      text += '🔨 *You\'re working on:*\n';
+      working.forEach(a => {
+        text += `• *${a.jobTitle}* · KES ${a.jobPay}\n`;
+        buttons.push([{ text: `🔨 ${a.jobTitle} — KES ${a.jobPay}`, callback_data: `worker_job_${a.jobId}` }]);
+      });
+    }
+
+    buttons.push([{ text: '← Menu', callback_data: 'menu_back' }]);
+    await showState(chatId, userId, text, { reply_markup: { inline_keyboard: buttons } });
     return;
   }
 });
