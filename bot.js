@@ -1400,7 +1400,7 @@ async function showJobDetail(chatId, userId, jobId) {
   if (alreadyApplied) buttons.push([{ text: '✅ Already applied', callback_data: 'noop' }]);
   if (isOwner)        buttons.push([{ text: '⚙️ Manage this hustle', callback_data: `manage_job_${jobId}` }]);
   if (userId === ADMIN_ID && !isOwner) buttons.push([{ text: `🔐 Ban poster (${job.posterName})`, callback_data: `ban_user_${job.posterId}` }]);
-  if (userId === ADMIN_ID && job.status === 'done') buttons.push([{ text: '🗑️ Delete (admin)', callback_data: `admin_delete_${jobId}` }]);
+  if (userId === ADMIN_ID && !isOwner) buttons.push([{ text: '🗑️ Delete job (admin)', callback_data: `admin_delete_${jobId}` }]);
 
   const text =
     `💼 *${job.title}*\n\n` +
