@@ -936,9 +936,10 @@ bot.on('callback_query', async (query) => {
       const appSnap = await db.collection('applications').where('jobId', '==', String(jobId)).where('workerId', '==', acceptedApp.workerId).get();
       await Promise.all(appSnap.docs.map(doc => doc.ref.update({ status: 'done' })));
 
-      // Increment worker's total earned + poster's total spent
+      // Increment worker's total earned + completed jobs + poster's total spent
       await db.collection('users').doc(String(acceptedApp.workerId)).update({
-        totalEarned: admin.firestore.FieldValue.increment(job.pay)
+        totalEarned:    admin.firestore.FieldValue.increment(job.pay),
+        completedJobs:  admin.firestore.FieldValue.increment(1),
       });
       await db.collection('users').doc(String(userId)).update({
         totalSpent: admin.firestore.FieldValue.increment(job.pay)
@@ -1502,15 +1503,40 @@ async function showApplicants(chatId, userId, jobId) {
   }
 
   if (pending.length) {
-    text += `⏳ *Pending (${pending.length}):*\n`;
-    pending.forEach((a, i) => {
-      text += `${i+1}. *${a.workerName}* — ${getRatingStars(a.rating, a.ratingCount)}\n📱 ${a.workerPhone}\n\n`;
-    });
+    text += `⏳ *Pending (${pending.length}):*\n\n`;
+    for (let i = 0; i < pending.length; i++) {
+      const a = pending[i];
+      // Fetch worker profile
+      const workerDoc = await db.collection('users').doc(String(a.workerId)).get();
+      const w = workerDoc.exists ? workerDoc.data() : {};
+      const joinDate = w.createdAt ? new Date(w.createdAt).toLocaleDateString('en-KE', { month: 'short', year: 'numeric' }) : 'Unknown';
+      const totalEarned = w.totalEarned || 0;
+      const completedJobs = w.completedJobs || 0;
+
+      // Fetch last 2 reviews
+      const reviewsSnap = await db.collection('users').doc(String(a.workerId))
+        .collection('reviews').orderBy('createdAt', 'desc').limit(2).get();
+      let reviewsText = '';
+      if (!reviewsSnap.empty) {
+        const stars = n => '⭐'.repeat(n) + '☆'.repeat(5 - n);
+        reviewsText = '\n💬 ' + reviewsSnap.docs.map(d => {
+          const r = d.data();
+          return `${stars(r.stars)} _"${r.comment}"_`;
+        }).join(' · ');
+      }
+
+      text += `${i+1}. *${a.workerName}* — ${getRatingStars(a.rating, a.ratingCount)}\n`;
+      text += `📱 ${a.workerPhone}\n`;
+      text += `📅 Member since ${joinDate}\n`;
+      text += `💰 Total earned: KES ${totalEarned.toLocaleString()}\n`;
+      if (completedJobs > 0) text += `✅ ${completedJobs} job${completedJobs > 1 ? 's' : ''} completed\n`;
+      text += reviewsText + '\n\n';
+    }
     text += 'Tap to accept:';
   }
 
   if (rejected.length) {
-    text += `❌ *Not selected (${rejected.length}):*\n`;
+    text += `\n❌ *Not selected (${rejected.length}):*\n`;
     rejected.forEach(a => {
       text += `• *${a.workerName}* — ${getRatingStars(a.rating, a.ratingCount)}\n`;
     });
