@@ -150,6 +150,10 @@ async function formatChannelPost(job) {
     }).join('\n');
   }
 
+  const statusText = job.status === 'open' ? '🟢 Looking for someone to do this' :
+                     job.status === 'taken' ? '🔨 In progress' :
+                     job.status === 'done'  ? '✅ Done' : '🟢 Open';
+
   return (
     `💼 *${job.title}*\n\n` +
     `📝 ${job.description}\n\n` +
@@ -157,10 +161,9 @@ async function formatChannelPost(job) {
     `📍 ${job.location}\n` +
     `${job.urgency || '⏰ Flexible'}\n\n` +
     `👤 Posted by: ${job.posterName} — ${getRatingStars(job.posterRating || 0, job.posterRatingCount || 0)}\n` +
-    (totalSpent > 0 ? `💵 Has paid out KES ${totalSpent.toLocaleString()} to workers\n` : '') +
-    `📌 Status: ${getJobStatus(job.status)}\n` +
-    `🆔 Job: #${job.id}` +
-    reviewsText
+    (totalSpent > 0 ? `💸 KES ${totalSpent.toLocaleString()} · paid to real people in Nairobi\n` : '') +
+    `\n${statusText}` +
+    (reviewsText ? `\n${reviewsText}` : '')
   );
 }
 
