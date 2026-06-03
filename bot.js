@@ -1215,9 +1215,17 @@ Keep hustling! 💪`,
       .get();
     const hiring = takenSnap.docs.map(d => d.data());
 
-    if (!working.length && !hiring.length) {
+    const totalActive = working.length + hiring.length;
+
+    if (totalActive === 0) {
+      // No active jobs — unpin if anything pinned
+      const userDoc = await db.collection('users').doc(String(userId)).get();
+      if (userDoc.exists && userDoc.data().pinnedMsgId) {
+        await bot.unpinAllChatMessages(chatId).catch(() => {});
+        await db.collection('users').doc(String(userId)).update({ pinnedMsgId: null });
+      }
       await showState(chatId, userId,
-        `🔴 *Live · see what's happening*\n\nNothing active right now.\n\nPost a hustle or apply to one to get started!`,
+        `🔴 *Husssle Live*\n\n👀 Are you working or waiting? Check Live\n\nNothing active right now.\n\nPost a hustle or apply to one to get started!`,
         { reply_markup: { inline_keyboard: [
           [{ text: '➕ Post a hustle', callback_data: 'post_start' }],
           [{ text: '← Menu', callback_data: 'menu_back' }],
@@ -1226,13 +1234,39 @@ Keep hustling! 💪`,
       return;
     }
 
-    let text = '🔴 *Live · see what\'s happening*\n\n';
+    // Check current pin
+    const userDoc = await db.collection('users').doc(String(userId)).get();
+    const userData = userDoc.exists ? userDoc.data() : {};
+    const pinnedMsgId = userData.pinnedMsgId;
+    const pinnedJobId = userData.pinnedJobId || null;
+
+    // Determine default pin — prefer worker job (job you're doing)
+    let defaultPinJobId = null;
+    let defaultPinText = null;
+    let defaultPinCallback = null;
+    if (working.length > 0) {
+      defaultPinJobId = working[0].jobId;
+      defaultPinText = `🔨 ${working[0].jobTitle} — KES ${working[0].jobPay}`;
+      defaultPinCallback = `worker_job_${working[0].jobId}`;
+    } else if (hiring.length > 0) {
+      defaultPinJobId = hiring[0].id;
+      defaultPinText = `👔 ${hiring[0].title} — KES ${hiring[0].pay}`;
+      defaultPinCallback = `manage_job_${hiring[0].id}`;
+    }
+
+    // Auto-fix pin if missing or outdated
+    if (!pinnedMsgId || pinnedJobId !== defaultPinJobId) {
+      await updateUserPin(userId);
+    }
+
+    let text = '🔴 *Husssle Live*\n\n👀 *Are you working or waiting? Check Live*\n\n';
     const buttons = [];
 
     if (hiring.length) {
       text += '👔 *Someone\'s working for you:*\n';
       hiring.forEach(j => {
-        text += `• *${j.title}* · KES ${j.pay}\n`;
+        const isPinned = pinnedJobId === j.id;
+        text += `${isPinned ? '📌 ' : '• '}*${j.title}* · KES ${j.pay}\n`;
         buttons.push([{ text: `👔 ${j.title} — KES ${j.pay}`, callback_data: `manage_job_${j.id}` }]);
       });
       text += '\n';
@@ -1241,13 +1275,41 @@ Keep hustling! 💪`,
     if (working.length) {
       text += '🔨 *You\'re working on:*\n';
       working.forEach(a => {
-        text += `• *${a.jobTitle}* · KES ${a.jobPay}\n`;
+        const isPinned = pinnedJobId === a.jobId;
+        text += `${isPinned ? '📌 ' : '• '}*${a.jobTitle}* · KES ${a.jobPay}\n`;
         buttons.push([{ text: `🔨 ${a.jobTitle} — KES ${a.jobPay}`, callback_data: `worker_job_${a.jobId}` }]);
+      });
+      text += '\n';
+    }
+
+    // If multiple active jobs, offer to change pin
+    if (totalActive > 1) {
+      text += `\n📌 *Pinned:* ${pinnedJobId ? (working.find(a => a.jobId === pinnedJobId)?.jobTitle || hiring.find(j => j.id === pinnedJobId)?.title || 'Unknown') : 'None'}\n`;
+      // Add pin switch buttons
+      const allJobs = [
+        ...working.map(a => ({ id: a.jobId, text: `📌 Pin: ${a.jobTitle}`, callback: `pin_job_${a.jobId}_worker` })),
+        ...hiring.map(j => ({ id: j.id, text: `📌 Pin: ${j.title}`, callback: `pin_job_${j.id}_poster` })),
+      ];
+      allJobs.forEach(j => {
+        if (j.id !== pinnedJobId) {
+          buttons.push([{ text: j.text, callback_data: j.callback }]);
+        }
       });
     }
 
     buttons.push([{ text: '← Menu', callback_data: 'menu_back' }]);
     await showState(chatId, userId, text, { reply_markup: { inline_keyboard: buttons } });
+    return;
+  }
+
+  if (data.startsWith('pin_job_')) {
+    const parts = data.split('_');
+    const jobId = parts[2];
+    const role  = parts[3]; // worker or poster
+    // Update pinnedJobId in Firebase then refresh pin
+    await db.collection('users').doc(String(userId)).update({ pinnedJobId: jobId });
+    await updateUserPin(userId);
+    bot.sendMessage(chatId, `📌 Pin updated!`).catch(() => {});
     return;
   }
 });
@@ -1903,35 +1965,47 @@ async function updateUserPin(userId) {
       .get();
     const openJobs = openSnap.docs.map(d => ({ ...d.data(), docId: d.id }));
 
-    const buttons = [];
-    workerJobs.forEach(a => {
-      buttons.push([{ text: `🚨 Working: ${a.jobTitle} — KES ${a.jobPay}`, callback_data: `worker_job_${a.jobId}` }]);
-    });
-    takenJobs.forEach(j => {
-      buttons.push([{ text: `🔨 In progress: ${j.title} — KES ${j.pay}`, callback_data: `manage_job_${j.id}` }]);
-    });
-    openJobs.forEach(j => {
-      buttons.push([{ text: `🟢 Searching: ${j.title} — KES ${j.pay}`, callback_data: `manage_job_${j.id}` }]);
-    });
-
     const userDoc = await db.collection('users').doc(String(userId)).get();
     const userData = userDoc.exists ? userDoc.data() : {};
+    const pinnedJobId = userData.pinnedJobId || null;
+
+    // Determine which job to show in pin
+    // Priority: user preference → worker job → taken job → open job
+    let pinnedJob = null;
+    let pinnedCallback = 'live_now';
+
+    if (pinnedJobId) {
+      const wj = workerJobs.find(a => a.jobId === pinnedJobId);
+      const tj = takenJobs.find(j => j.id === pinnedJobId);
+      const oj = openJobs.find(j => j.id === pinnedJobId);
+      if (wj) { pinnedJob = { title: wj.jobTitle, pay: wj.jobPay }; pinnedCallback = `worker_job_${wj.jobId}`; }
+      else if (tj) { pinnedJob = { title: tj.title, pay: tj.pay }; pinnedCallback = `manage_job_${tj.id}`; }
+      else if (oj) { pinnedJob = { title: oj.title, pay: oj.pay }; pinnedCallback = `manage_job_${oj.id}`; }
+    }
+    if (!pinnedJob) {
+      if (workerJobs.length) { pinnedJob = { title: workerJobs[0].jobTitle, pay: workerJobs[0].jobPay }; pinnedCallback = `worker_job_${workerJobs[0].jobId}`; }
+      else if (takenJobs.length) { pinnedJob = { title: takenJobs[0].title, pay: takenJobs[0].pay }; pinnedCallback = `manage_job_${takenJobs[0].id}`; }
+      else if (openJobs.length) { pinnedJob = { title: openJobs[0].title, pay: openJobs[0].pay }; pinnedCallback = `manage_job_${openJobs[0].id}`; }
+    }
 
     if (userData.pinnedMsgId) {
       await bot.unpinChatMessage(userId, { message_id: userData.pinnedMsgId }).catch(() => {});
       await bot.deleteMessage(userId, userData.pinnedMsgId).catch(() => {});
     }
 
-    if (buttons.length === 0) {
+    const total = workerJobs.length + takenJobs.length + openJobs.length;
+    if (total === 0) {
       await bot.unpinAllChatMessages(userId).catch(() => {});
       await db.collection('users').doc(String(userId)).update({ pinnedMsgId: null });
       return;
     }
 
-    const total = workerJobs.length + takenJobs.length + openJobs.length;
     const pinMsg = await bot.sendMessage(userId,
-      `🚨 *Active hustles (${total})*`,
-      { parse_mode: 'Markdown', reply_markup: { inline_keyboard: buttons } }
+      `🔴 *Active hustles (${total})*`,
+      { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [
+        pinnedJob ? [{ text: `${pinnedCallback.startsWith('worker') ? '🔨' : '👔'} ${pinnedJob.title} — KES ${pinnedJob.pay}`, callback_data: pinnedCallback }] : [{ text: '🔴 Husssle Live 🔴', callback_data: 'live_now' }],
+        [{ text: '🔴 Husssle Live 🔴', callback_data: 'live_now' }],
+      ]}}
     );
     await bot.pinChatMessage(userId, pinMsg.message_id, { disable_notification: true }).catch(() => {});
     await db.collection('users').doc(String(userId)).update({ pinnedMsgId: pinMsg.message_id });
