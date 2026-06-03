@@ -129,7 +129,7 @@ function getRatingStars(rating, ratingCount) {
 
 function getJobStatus(status) {
   if (status === 'open')  return '🟢 Open';
-  if (status === 'taken') return '💼 Hired — boots on the ground';
+  if (status === 'taken') return '🟡 Someone grabbed this — work started';
   if (status === 'done')  return '✅ Done';
   return status;
 }
@@ -151,10 +151,11 @@ async function formatChannelPost(job) {
   }
 
   const statusText = job.status === 'open' ? '🟢 Looking for someone to do this' :
-                     job.status === 'taken' ? '💼 Hired — boots on the ground' :
+                     job.status === 'taken' ? '🟡 Someone grabbed this — work started' :
                      job.status === 'done'  ? '✅ Done' : '🟢 Open';
 
   return (
+    (job.status !== 'open' ? `${statusText}\n\n` : '') +
     `💼 *${job.title}*\n\n` +
     `📝 ${job.description}\n\n` +
     `💰 *KES ${job.pay}*\n` +
@@ -162,7 +163,7 @@ async function formatChannelPost(job) {
     `${job.urgency || '⏰ Flexible'}\n\n` +
     `👤 Posted by: ${job.posterName} — ${getRatingStars(job.posterRating || 0, job.posterRatingCount || 0)}\n` +
     (totalSpent > 0 ? `💸 KES ${totalSpent.toLocaleString()} · paid to real people in Nairobi\n` : '') +
-    `\n${statusText}` +
+    (job.status === 'open' ? `\n${statusText}` : '') +
     (reviewsText ? `\n${reviewsText}` : '')
   );
 }
