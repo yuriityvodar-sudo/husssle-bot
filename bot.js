@@ -134,7 +134,22 @@ function getJobStatus(status) {
   return status;
 }
 
-function formatChannelPost(job) {
+async function formatChannelPost(job) {
+  // Fetch poster's real totalSpent and recent reviews
+  const posterDoc = await db.collection('users').doc(String(job.posterId)).get();
+  const totalSpent = posterDoc.exists ? (posterDoc.data().totalSpent || 0) : 0;
+
+  const reviewsSnap = await db.collection('users').doc(String(job.posterId))
+    .collection('reviews').orderBy('createdAt', 'desc').limit(3).get();
+  let reviewsText = '';
+  if (!reviewsSnap.empty) {
+    const stars = n => '⭐'.repeat(n) + '☆'.repeat(5 - n);
+    reviewsText = '\n💬 *Recent reviews:*\n' + reviewsSnap.docs.map(d => {
+      const r = d.data();
+      return `${stars(r.stars)} _"${r.comment}"_ — ${r.fromName}`;
+    }).join('\n');
+  }
+
   return (
     `💼 *${job.title}*\n\n` +
     `📝 ${job.description}\n\n` +
@@ -142,9 +157,10 @@ function formatChannelPost(job) {
     `📍 ${job.location}\n` +
     `${job.urgency || '⏰ Flexible'}\n\n` +
     `👤 Posted by: ${job.posterName} — ${getRatingStars(job.posterRating || 0, job.posterRatingCount || 0)}\n` +
-    (job.posterTotalSpent ? `💵 Has paid out KES ${Number(job.posterTotalSpent).toLocaleString()} to workers\n` : '') +
+    (totalSpent > 0 ? `💵 Has paid out KES ${totalSpent.toLocaleString()} to workers\n` : '') +
     `📌 Status: ${getJobStatus(job.status)}\n` +
-    `🆔 Job: #${job.id}`
+    `🆔 Job: #${job.id}` +
+    reviewsText
   );
 }
 
@@ -1338,7 +1354,7 @@ async function publishJob(chatId, userId, user, draft) {
     { parse_mode: 'Markdown' }
   );
 
-  const caption  = formatChannelPost(job);
+  const caption  = await formatChannelPost(job);
   const applyUrl = `https://t.me/nbohussle_bot?start=apply_${jobId}`;
   const keyboard = { inline_keyboard: [[{ text: "✋ I'll do it!", url: applyUrl }]] };
 
@@ -1410,6 +1426,10 @@ async function showJobDetail(chatId, userId, jobId) {
   if (userId === ADMIN_ID && !isOwner) buttons.push([{ text: `🔐 Ban poster (${job.posterName})`, callback_data: `ban_user_${job.posterId}` }]);
   if (userId === ADMIN_ID && !isOwner) buttons.push([{ text: '🗑️ Delete job (admin)', callback_data: `admin_delete_${jobId}` }]);
 
+  // Fetch poster's totalSpent
+  const posterDoc = await db.collection('users').doc(String(job.posterId)).get();
+  const posterTotalSpent = posterDoc.exists ? (posterDoc.data().totalSpent || 0) : 0;
+
   const text =
     `💼 *${job.title}*\n\n` +
     `📝 ${job.description}\n\n` +
@@ -1417,6 +1437,7 @@ async function showJobDetail(chatId, userId, jobId) {
     `📍 ${job.location}\n` +
     `📌 ${getJobStatus(job.status)}\n` +
     `👤 ${job.posterName} — ${getRatingStars(job.posterRating, job.posterRatingCount)}\n` +
+    (posterTotalSpent > 0 ? `💵 Has paid out KES ${posterTotalSpent.toLocaleString()} to workers\n` : '') +
     `👥 ${apps.length} applicant(s)` +
     reviewsText;
 
@@ -1609,7 +1630,7 @@ async function updateUserPin(userId) {
 
 async function updateChannelPost(job) {
   if (!job.channelMsgId) return;
-  const text = formatChannelPost(job);
+  const text = await formatChannelPost(job);
   // For multi-photo jobs, channelMsgId is a text message (the one with the button)
   // For single photo or no photo, it's the photo/text message
   if (job.photos && job.photos.length === 1) {
