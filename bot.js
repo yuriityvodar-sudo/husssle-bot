@@ -177,6 +177,25 @@ function mainMenu() {
   };
 }
 
+async function showState(chatId, userId, text, options = {}) {
+  const userDoc = await db.collection('users').doc(String(userId)).get();
+  const stateMsgId = userDoc.exists ? userDoc.data().stateMsgId : null;
+  if (stateMsgId) {
+    await bot.deleteMessage(chatId, stateMsgId).catch(() => {});
+  }
+  let sent;
+  if (options.photo) {
+    sent = await bot.sendPhoto(chatId, options.photo, { caption: text, parse_mode: 'Markdown', reply_markup: options.reply_markup });
+  } else if (options.media_group) {
+    await bot.sendMediaGroup(chatId, options.media_group);
+    sent = await bot.sendMessage(chatId, text, { parse_mode: 'Markdown', reply_markup: options.reply_markup });
+  } else {
+    sent = await bot.sendMessage(chatId, text, { parse_mode: 'Markdown', reply_markup: options.reply_markup });
+  }
+  await db.collection('users').doc(String(userId)).update({ stateMsgId: sent.message_id }).catch(() => {});
+  return sent;
+}
+
 async function showMenu(chatId, userId, text = 'What do you want to do?') {
   const userDoc = await db.collection('users').doc(String(userId)).get();
   const menuMsgId = userDoc.exists ? userDoc.data().menuMsgId : null;
@@ -311,7 +330,7 @@ bot.onText(/\/admin/, async (msg) => {
     .limit(20)
     .get();
   if (snap.empty) {
-    bot.sendMessage(msg.chat.id, '✅ No jobs found.');
+    await showState(msg.chat.id, msg.from.id, '✅ No jobs found.');
     return;
   }
   const jobs = snap.docs.map(d => ({ ...d.data(), docId: d.id }));
@@ -319,9 +338,9 @@ bot.onText(/\/admin/, async (msg) => {
     text: `${getJobStatus(j.status)} ${j.title} — KES ${j.pay}`,
     callback_data: `admin_delete_${j.id}`
   }]));
-  bot.sendMessage(msg.chat.id,
+  await showState(msg.chat.id, msg.from.id,
     `🔐 *Admin — all jobs* (${jobs.length})\n\nTap to delete:`,
-    { parse_mode: 'Markdown', reply_markup: { inline_keyboard: buttons } }
+    { reply_markup: { inline_keyboard: buttons } }
   );
 });
 
@@ -329,7 +348,7 @@ bot.onText(/\/banned/, async (msg) => {
   if (msg.from.id !== ADMIN_ID) return;
   const snap = await db.collection('users').where('banned', '==', true).get();
   if (snap.empty) {
-    bot.sendMessage(msg.chat.id, '✅ No banned users.');
+    await showState(msg.chat.id, msg.from.id, '✅ No banned users.');
     return;
   }
   const buttons = snap.docs.map(doc => {
@@ -337,7 +356,7 @@ bot.onText(/\/banned/, async (msg) => {
     return [{ text: `🔓 Unban ${u.name} (${u.id})`, callback_data: `unban_user_${u.id}` }];
   });
   const text = `🚫 *Banned Users* (${snap.size})\n\nTap to unban:`;
-  bot.sendMessage(msg.chat.id, text, { parse_mode: 'Markdown', reply_markup: { inline_keyboard: buttons } });
+  await showState(msg.chat.id, msg.from.id, text, { reply_markup: { inline_keyboard: buttons } });
 });
 
 // ─── Callback query handler ───────────────────────────────────────────────────
@@ -476,9 +495,9 @@ bot.on('callback_query', async (query) => {
   if (data === 'my_applications') {
     const apps = await getUserApplications(userId);
     if (!apps.length) {
-      bot.sendMessage(chatId,
+      await showState(chatId, userId,
         `📬 *My Work*\n\nYou haven't applied to any hustles yet.`,
-        { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '📋 Browse hustles', callback_data: 'browse' }]] } }
+        { reply_markup: { inline_keyboard: [[{ text: '📋 Browse hustles', callback_data: 'browse' }]] } }
       );
       return;
     }
@@ -520,16 +539,16 @@ bot.on('callback_query', async (query) => {
     buttons.push([{ text: '📋 Browse more', callback_data: 'browse' }]);
     buttons.push([{ text: '← Menu', callback_data: 'menu_back' }]);
 
-    bot.sendMessage(chatId, text, { parse_mode: 'Markdown', reply_markup: { inline_keyboard: buttons } });
+    await showState(chatId, userId, text, { reply_markup: { inline_keyboard: buttons } });
     return;
   }
 
   if (data === 'my_jobs') {
     const myJobs = await getUserJobs(userId);
     if (!myJobs.length) {
-      bot.sendMessage(chatId,
+      await showState(chatId, userId,
         `📌 *Your Posted Hustles*\n\nYou haven't posted anything yet.`,
-        { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '➕ Post a hustle', callback_data: 'post_start' }]] } }
+        { reply_markup: { inline_keyboard: [[{ text: '➕ Post a hustle', callback_data: 'post_start' }]] } }
       );
       return;
     }
@@ -891,10 +910,10 @@ bot.on('callback_query', async (query) => {
     if (!job || job.posterId !== userId) return;
     const apps = await getJobApplications(jobId);
     const rejected = apps.filter(a => a.status === 'rejected');
-    if (!rejected.length) { bot.sendMessage(chatId, 'No rejected applicants.'); return; }
+    if (!rejected.length) { await showState(chatId, userId, 'No rejected applicants.'); return; }
     let text = `❌ *Rejected applicants for "${job.title}"*\n\n`;
     rejected.forEach(a => { text += `• *${a.workerName}* — ${getRatingStars(a.rating, a.ratingCount)}\n📱 ${a.workerPhone}\n\n`; });
-    bot.sendMessage(chatId, text, { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '← Back', callback_data: `manage_job_${jobId}` }]] } });
+    await showState(chatId, userId, text, { reply_markup: { inline_keyboard: [] } });
     return;
   }
 
@@ -904,10 +923,10 @@ bot.on('callback_query', async (query) => {
     if (!job || job.posterId !== userId) return;
     const apps = await getJobApplications(jobId);
     const accepted = apps.filter(a => a.status === 'accepted');
-    if (!accepted.length) { bot.sendMessage(chatId, 'No accepted applicants.'); return; }
+    if (!accepted.length) { await showState(chatId, userId, 'No accepted applicants.'); return; }
     let text = `✅ *Accepted applicants for "${job.title}"*\n\n`;
     accepted.forEach(a => { text += `• *${a.workerName}* — ${getRatingStars(a.rating, a.ratingCount)}\n📱 ${a.workerPhone}\n\n`; });
-    bot.sendMessage(chatId, text, { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '← Back', callback_data: `manage_job_${jobId}` }]] } });
+    await showState(chatId, userId, text, { reply_markup: { inline_keyboard: [] } });
     return;
   }
 
@@ -1546,9 +1565,9 @@ async function showJobDetail(chatId, userId, jobId) {
     reviewsText;
 
   if (job.photos && job.photos.length > 0) {
-    bot.sendPhoto(chatId, job.photos[0], { caption: text, parse_mode: 'Markdown', reply_markup: { inline_keyboard: buttons } });
+    await showState(chatId, userId, text, { photo: job.photos[0], reply_markup: { inline_keyboard: buttons } });
   } else {
-    bot.sendMessage(chatId, text, { parse_mode: 'Markdown', reply_markup: { inline_keyboard: buttons } });
+    await showState(chatId, userId, text, { reply_markup: { inline_keyboard: buttons } });
   }
 }
 
@@ -1570,17 +1589,10 @@ async function showManageJob(chatId, userId, jobId) {
   if (job.status === 'taken') buttons.push([{ text: '❌ Cancel job (notify worker)', callback_data: `cancel_job_${jobId}` }]);
   if (job.status !== 'done') buttons.push([{ text: '🗑️ Delete this job', callback_data: `delete_job_${jobId}` }]);
 
-  // Clear buttons from previous manage message for this job
-  const s = getSession(userId);
-  const prevKey = `manageMsg_${jobId}`;
-  if (s.draft[prevKey]) {
-    bot.editMessageReplyMarkup({ inline_keyboard: [] }, { chat_id: chatId, message_id: s.draft[prevKey] }).catch(() => {});
-  }
-  const sentMsg = await bot.sendMessage(chatId,
+  await showState(chatId, userId,
     `⚙️ *Manage: ${job.title}*\n\nStatus: ${getJobStatus(job.status)}\nApplicants: ${apps.length}\nPay: KES ${job.pay}`,
-    { parse_mode: 'Markdown', reply_markup: { inline_keyboard: buttons } }
+    { reply_markup: { inline_keyboard: buttons } }
   );
-  s.draft[prevKey] = sentMsg.message_id;
 }
 
 async function showApplicants(chatId, userId, jobId) {
@@ -1589,7 +1601,7 @@ async function showApplicants(chatId, userId, jobId) {
   const apps = await getJobApplications(jobId);
 
   if (!apps.length) {
-    bot.sendMessage(chatId, 'No applications yet.');
+    await showState(chatId, userId, 'No applications yet.');
     return;
   }
   const pending  = apps.filter(a => a.status === 'pending');
@@ -1649,7 +1661,7 @@ async function showApplicants(chatId, userId, jobId) {
     [{ text: `✅ Accept ${a.workerName}`, callback_data: `accept_${jobId}_${a.workerId}` },
      { text: `❌ Reject`, callback_data: `reject_${jobId}_${a.workerId}` }]
   ]));
-  bot.sendMessage(chatId, text, { parse_mode: 'Markdown', reply_markup: { inline_keyboard: buttons } });
+  await showState(chatId, userId, text, { reply_markup: { inline_keyboard: buttons } });
 }
 
 async function acceptApplicant(chatId, posterId, jobId, workerId) {
