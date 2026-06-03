@@ -798,7 +798,7 @@ bot.on('callback_query', async (query) => {
         [{ text: '❌ Not yet', callback_data: `decline_done_${jobId}_${userId}` }],
       ]}}
     ).catch(() => {});
-    bot.sendMessage(chatId, '✅ Request sent to customer. Waiting for confirmation.', { reply_markup: { inline_keyboard: [[{ text: '← Back', callback_data: `worker_job_${jobId}` }]] } });
+    bot.sendMessage(chatId, '✅ Request sent to customer. Waiting for confirmation.');
     return;
   }
 
@@ -821,7 +821,7 @@ bot.on('callback_query', async (query) => {
         [{ text: '✅ Approve', callback_data: `approve_leave_${jobId}_${userId}` }],
       ]}}
     ).catch(() => {});
-    bot.sendMessage(chatId, '✅ Request sent to customer. Waiting for response.', { reply_markup: { inline_keyboard: [[{ text: '← Back', callback_data: `worker_job_${jobId}` }]] } });
+    bot.sendMessage(chatId, '✅ Request sent to customer. Waiting for response.');
     return;
   }
 
@@ -939,67 +939,45 @@ Keep hustling! 💪`,
   if (data.startsWith('mark_done_')) {
     const jobId = data.replace('mark_done_', '');
     const job   = await getJob(jobId);
-    if (!job || job.posterId !== userId) return;
-
-    const deleteAt = Date.now() + 24 * 60 * 60 * 1000;
-    await db.collection('jobs').doc(String(jobId)).update({ status: 'done', deleteAt });
-    job.status = 'done';
-    job.deleteAt = deleteAt;
+    if (!job || String(job.posterId) !== String(userId)) return;
 
     const apps = await getJobApplications(jobId);
-    const acceptedApp = apps.find(a => a.status === 'accepted');
+    const acceptedApp = apps.find(a => String(a.status) === 'accepted');
 
-    // Update channel post with completion summary
-    updateDoneChannelPost(job, acceptedApp).catch(() => {});
-
-    if (acceptedApp) {
-      const appSnap = await db.collection('applications').where('jobId', '==', String(jobId)).where('workerId', '==', acceptedApp.workerId).get();
-      await Promise.all(appSnap.docs.map(doc => doc.ref.update({ status: 'done' })));
-
-      // Increment worker's total earned + completed jobs + poster's total spent
-      await db.collection('users').doc(String(acceptedApp.workerId)).update({
-        totalEarned:    admin.firestore.FieldValue.increment(job.pay),
-        completedJobs:  admin.firestore.FieldValue.increment(1),
-      });
-      await db.collection('users').doc(String(userId)).update({
-        totalSpent: admin.firestore.FieldValue.increment(job.pay)
-      });
-
-      // Create pending feedback records for both sides
-      const feedbackBase = { jobId: String(jobId), jobTitle: job.title, createdAt: Date.now() };
-      await db.collection('pendingFeedback').doc(`${jobId}_${userId}_poster`).set({
-        ...feedbackBase, fromUserId: userId, toUserId: acceptedApp.workerId, type: 'poster'
-      });
-      await db.collection('pendingFeedback').doc(`${jobId}_${acceptedApp.workerId}_worker`).set({
-        ...feedbackBase, fromUserId: acceptedApp.workerId, toUserId: userId, type: 'worker'
-      });
-
-      updateUserPin(userId).catch(() => {});
-      updateUserPin(acceptedApp.workerId).catch(() => {});
-
-      bot.sendMessage(chatId,
-        `✅ *Job marked as Done!*\n\n⭐ *Rate & review the worker*\n_Tap a star, then type your comment below:_`,
-        { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[
-          { text: '⭐1', callback_data: `rate_worker_${jobId}_${acceptedApp.workerId}_1` },
-          { text: '⭐2', callback_data: `rate_worker_${jobId}_${acceptedApp.workerId}_2` },
-          { text: '⭐3', callback_data: `rate_worker_${jobId}_${acceptedApp.workerId}_3` },
-          { text: '⭐4', callback_data: `rate_worker_${jobId}_${acceptedApp.workerId}_4` },
-          { text: '⭐5', callback_data: `rate_worker_${jobId}_${acceptedApp.workerId}_5` },
-        ]] }}
-      );
-      bot.sendMessage(acceptedApp.workerId,
-        `✅ *${job.title}* has been marked as Done!\n\n⭐ *Rate & review the customer*\n_Tap a star, then type your comment below:_`,
-        { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[
-          { text: '⭐1', callback_data: `rate_poster_${jobId}_${userId}_1` },
-          { text: '⭐2', callback_data: `rate_poster_${jobId}_${userId}_2` },
-          { text: '⭐3', callback_data: `rate_poster_${jobId}_${userId}_3` },
-          { text: '⭐4', callback_data: `rate_poster_${jobId}_${userId}_4` },
-          { text: '⭐5', callback_data: `rate_poster_${jobId}_${userId}_5` },
-        ]] }}
-      ).catch(() => {});
-    } else {
+    if (!acceptedApp) {
+      // No worker, just close it
+      const deleteAt = Date.now() + 24 * 60 * 60 * 1000;
+      await db.collection('jobs').doc(String(jobId)).update({ status: 'done', deleteAt });
       bot.sendMessage(chatId, '✅ Job marked as Done!', { reply_markup: mainMenu() });
+      return;
     }
+
+    // Ask poster to review first — comment then stars
+    const s = getSession(userId);
+    s.step = 'completion_review_comment';
+    s.draft.completionJobId     = jobId;
+    s.draft.completionWorkerId  = acceptedApp.workerId;
+    s.draft.completionWorkerName = acceptedApp.workerName;
+    s.draft.completionRole      = 'poster';
+
+    bot.sendMessage(chatId,
+      `👋 *Hey! How did "${job.title}" go?*\n\nTell us in a few words — what was done, how it went. This closes the job and builds your reputation on Husssle 🌟`,
+      { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '❌ Cancel', callback_data: 'cancel' }]] } }
+    ).then(m => { s.draft.lastMsgId = m.message_id; });
+
+    // Also prompt worker simultaneously
+    const workerSession = getSession(acceptedApp.workerId);
+    workerSession.step = 'completion_review_comment';
+    workerSession.draft.completionJobId     = jobId;
+    workerSession.draft.completionPosterId  = userId;
+    workerSession.draft.completionPosterName = job.posterName;
+    workerSession.draft.completionRole      = 'worker';
+
+    bot.sendMessage(acceptedApp.workerId,
+      `👋 *Hey! How did "${job.title}" go?*\n\nTell us in a few words — what was done, how it went. This closes the job and builds your reputation on Husssle 🌟`,
+      { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '❌ Cancel', callback_data: 'cancel' }]] } }
+    ).then(m => { workerSession.draft.lastMsgId = m.message_id; }).catch(() => {});
+
     return;
   }
 
@@ -1009,17 +987,15 @@ Keep hustling! 💪`,
     const wId   = parseInt(parts[3]);
     const jobId = parts[2];
     const s = getSession(userId);
-    s.step = 'write_review';
-    s.draft.reviewStars  = stars;
-    s.draft.reviewTarget = wId;
-    s.draft.reviewJobId  = jobId;
-    s.draft.reviewType   = 'worker';
-    s.draft.lastMsgId    = msgId;
-    // Edit the same message to confirm stars and prompt for comment
+    s.draft.completionStars = stars;
+    s.draft.lastMsgId = msgId;
     bot.editMessageText(
-      `✅ *Job marked as Done!*\n\n⭐ *${stars} star${stars > 1 ? 's' : ''}* selected!\n\n✍️ Now type your review below (min 10 characters):`,
+      `⭐ *${stars} star${stars > 1 ? 's' : ''}* selected!\n\nThanks! Your review is being submitted...`,
       { chat_id: chatId, message_id: msgId, parse_mode: 'Markdown' }
     ).catch(() => {});
+    // Submit the review
+    await submitCompletionReview(chatId, userId, jobId, wId, stars, s.draft.completionComment, 'poster');
+    clearSession(userId);
     return;
   }
 
@@ -1029,17 +1005,14 @@ Keep hustling! 💪`,
     const pId   = parseInt(parts[3]);
     const jobId = parts[2];
     const s = getSession(userId);
-    s.step = 'write_review';
-    s.draft.reviewStars  = stars;
-    s.draft.reviewTarget = pId;
-    s.draft.reviewJobId  = jobId;
-    s.draft.reviewType   = 'poster';
-    s.draft.lastMsgId    = msgId;
-    // Edit the same message to confirm stars and prompt for comment
+    s.draft.completionStars = stars;
+    s.draft.lastMsgId = msgId;
     bot.editMessageText(
-      `✅ *Job marked as Done!*\n\n⭐ *${stars} star${stars > 1 ? 's' : ''}* selected!\n\n✍️ Now type your review below (min 10 characters):`,
+      `⭐ *${stars} star${stars > 1 ? 's' : ''}* selected!\n\nThanks! Your review is being submitted...`,
       { chat_id: chatId, message_id: msgId, parse_mode: 'Markdown' }
     ).catch(() => {});
+    await submitCompletionReview(chatId, userId, jobId, pId, stars, s.draft.completionComment, 'worker');
+    clearSession(userId);
     return;
   }
 
@@ -1130,6 +1103,36 @@ bot.on('message', async (msg) => {
     } else {
       startPostFlow(chatId, userId);
     }
+    return;
+  }
+
+  if (s.step === 'completion_review_comment') {
+    if (!text || text.length < 10) {
+      bot.sendMessage(chatId, '⚠️ Please write at least 10 characters to describe how it went:');
+      return;
+    }
+    // Save comment, ask for stars
+    if (s.draft.lastMsgId) bot.editMessageReplyMarkup({ inline_keyboard: [] }, { chat_id: chatId, message_id: s.draft.lastMsgId }).catch(() => {});
+    s.draft.completionComment = text;
+    s.step = 'completion_review_stars';
+
+    const isWorker = s.draft.completionRole === 'worker';
+    const targetName = isWorker ? s.draft.completionPosterName : s.draft.completionWorkerName;
+    const jobId = s.draft.completionJobId;
+    const targetId = isWorker ? s.draft.completionPosterId : s.draft.completionWorkerId;
+    const prefix = isWorker ? 'rate_poster' : 'rate_worker';
+
+    const ratingMsg = await bot.sendMessage(chatId,
+      `✍️ *"${text}"*\n\nNow rate ${targetName}:`,
+      { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[
+        { text: '⭐1', callback_data: `${prefix}_${jobId}_${targetId}_1` },
+        { text: '⭐2', callback_data: `${prefix}_${jobId}_${targetId}_2` },
+        { text: '⭐3', callback_data: `${prefix}_${jobId}_${targetId}_3` },
+        { text: '⭐4', callback_data: `${prefix}_${jobId}_${targetId}_4` },
+        { text: '⭐5', callback_data: `${prefix}_${jobId}_${targetId}_5` },
+      ]] }}
+    );
+    s.draft.lastMsgId = ratingMsg.message_id;
     return;
   }
 
@@ -1618,6 +1621,71 @@ async function acceptApplicant(chatId, posterId, jobId, workerId) {
       { parse_mode: 'Markdown' }
     ).catch(() => {});
   });
+}
+
+async function submitCompletionReview(chatId, fromUserId, jobId, toUserId, stars, comment, role) {
+  try {
+    const job = await getJob(jobId);
+    if (!job) return;
+
+    // Save rating + review on target user
+    const targetDoc = await db.collection('users').doc(String(toUserId)).get();
+    if (targetDoc.exists) {
+      const t = targetDoc.data();
+      await db.collection('users').doc(String(toUserId)).update({
+        rating: (t.rating || 0) + stars,
+        ratingCount: (t.ratingCount || 0) + 1
+      });
+      await db.collection('users').doc(String(toUserId)).collection('reviews').add({
+        fromUserId, fromName: (await db.collection('users').doc(String(fromUserId)).get()).data()?.name || 'Unknown',
+        stars, comment, jobId: String(jobId), type: role, createdAt: Date.now()
+      });
+    }
+
+    // Delete pending feedback
+    const fbDocId = role === 'worker'
+      ? `${jobId}_${fromUserId}_worker`
+      : `${jobId}_${fromUserId}_poster`;
+    await db.collection('pendingFeedback').doc(fbDocId).delete().catch(() => {});
+
+    // Mark this side as reviewed on the job
+    const reviewField = role === 'poster' ? 'posterReviewed' : 'workerReviewed';
+    await db.collection('jobs').doc(String(jobId)).update({ [reviewField]: true });
+
+    bot.sendMessage(chatId, `✅ *Review submitted!* Thanks 🙏\n\n⭐ ${stars} star${stars > 1 ? 's' : ''} — _"${comment}"_`, { parse_mode: 'Markdown', reply_markup: mainMenu() });
+
+    // Check if both sides have reviewed
+    const updatedJob = await getJob(jobId);
+    if (updatedJob.posterReviewed && updatedJob.workerReviewed) {
+      // Now officially close the job
+      const deleteAt = Date.now() + 24 * 60 * 60 * 1000;
+      await db.collection('jobs').doc(String(jobId)).update({ status: 'done', deleteAt });
+      updatedJob.status = 'done';
+      updatedJob.deleteAt = deleteAt;
+
+      const apps = await getJobApplications(jobId);
+      const acceptedApp = apps.find(a => String(a.workerId) === String(role === 'poster' ? toUserId : fromUserId) || String(a.workerId) === String(role === 'worker' ? fromUserId : toUserId));
+
+      if (acceptedApp) {
+        const appSnap = await db.collection('applications').where('jobId', '==', String(jobId)).where('workerId', '==', acceptedApp.workerId).get();
+        await Promise.all(appSnap.docs.map(doc => doc.ref.update({ status: 'done' })));
+
+        await db.collection('users').doc(String(acceptedApp.workerId)).update({
+          totalEarned:   admin.firestore.FieldValue.increment(job.pay),
+          completedJobs: admin.firestore.FieldValue.increment(1),
+        });
+        await db.collection('users').doc(String(job.posterId)).update({
+          totalSpent: admin.firestore.FieldValue.increment(job.pay)
+        });
+      }
+
+      updateUserPin(job.posterId).catch(() => {});
+      if (acceptedApp) updateUserPin(acceptedApp.workerId).catch(() => {});
+      updateDoneChannelPost(updatedJob, acceptedApp).catch(() => {});
+    }
+  } catch (e) {
+    console.log('submitCompletionReview error:', e.message);
+  }
 }
 
 async function updateUserPin(userId) {
