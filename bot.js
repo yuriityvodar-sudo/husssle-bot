@@ -688,9 +688,7 @@ bot.on('callback_query', async (query) => {
   if (data.startsWith('confirm_delete_')) {
     const jobId = data.replace('confirm_delete_', '');
     const job = await getJob(jobId);
-    console.log(`confirm_delete: jobId=${jobId}, job=${job ? job.title : 'null'}, posterId=${job?.posterId}, userId=${userId}, match=${job?.posterId === userId}`);
-    if (!job) { bot.sendMessage(chatId, '❌ Job not found.'); return; }
-    if (job.posterId !== userId) { bot.sendMessage(chatId, '❌ Not your job.'); return; }
+    if (!job || job.posterId !== userId) return;
 
     // Notify accepted worker if job is taken
     if (job.status === 'taken') {
@@ -716,7 +714,7 @@ bot.on('callback_query', async (query) => {
     // Delete job from Firebase
     await db.collection('jobs').doc(String(jobId)).delete();
     updateUserPin(userId).catch(() => {});
-    bot.sendMessage(chatId, '✅ Job deleted successfully.', { reply_markup: { inline_keyboard: [[{ text: '← My jobs', callback_data: 'my_jobs' }]] } });
+    bot.sendMessage(chatId, '✅ Job deleted successfully.');
     return;
   }
 
