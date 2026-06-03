@@ -91,6 +91,8 @@ const BANNED_WORDS = [
   'shit', 'fuck', 'bitch', 'bastard', 'asshole', 'damn',
   'crap', 'piss', 'dick', 'cock', 'pussy', 'cunt', 'ass ',
   'suck', 'balls', 'butt', 'arse', 'boob', 'tit',
+  'blowjob', 'blow job', 'handjob', 'hand job', 'anal', 'fetish',
+  'whore', 'slut', 'nigga', 'nigger',
   // Weapons/Drugs
   'drug', 'cocaine', 'weed', 'gun', 'weapon', 'kill',
   // Spam
@@ -1188,6 +1190,7 @@ bot.on('message', async (msg) => {
   if (s.step === 'post_pay') {
     const pay = parseInt(text.replace(/[^0-9]/g, ''));
     if (!pay || pay < 1) { bot.sendMessage(chatId, '⚠️ Please enter a valid amount, e.g. 3000'); return; }
+    if (pay > 10000000) { bot.sendMessage(chatId, '⚠️ Amount too high. Max is KES 10,000,000'); return; }
     if (s.draft.lastMsgId) bot.editMessageReplyMarkup({ inline_keyboard: [] }, { chat_id: chatId, message_id: s.draft.lastMsgId }).catch(() => {});
     s.draft.pay = pay;
     s.step = 'post_location';
