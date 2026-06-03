@@ -171,9 +171,9 @@ async function formatChannelPost(job) {
 function mainMenu() {
   return {
     inline_keyboard: [
-      [{ text: '➕ Post a hustle',            callback_data: 'post_start' }],
-      [{ text: '📬 My applications', callback_data: 'my_applications' }],
-      [{ text: '📌 My posted jobs',         callback_data: 'my_jobs' }],
+      [{ text: '➕ Post a hustle',       callback_data: 'post_start' }],
+      [{ text: "🤲 Hustles I'm doing",   callback_data: 'my_applications' }],
+      [{ text: '💼 Hustles I posted',    callback_data: 'my_jobs' }],
     ]
   };
 }
@@ -825,6 +825,7 @@ bot.on('callback_query', async (query) => {
         [{ text: '✅ Request completion', callback_data: `request_done_${jobId}` }],
         [{ text: '🚪 Leave this job', callback_data: `request_leave_${jobId}` }],
         [{ text: '⚠️ Report to admin', callback_data: `report_job_${jobId}` }],
+        [{ text: '← Back', callback_data: 'my_applications' }],
       ]}}
     );
     s.draft[prevWorkerKey] = workerViewMsg.message_id;
@@ -2011,14 +2012,14 @@ console.log('🤖 Husssle bot is running with Firestore...');
 // Set commands for regular users
 bot.setMyCommands([
   { command: 'menu', description: 'Main menu' },
-  { command: 'work', description: 'My active jobs & applications' },
+  { command: 'work', description: 'My active hustles' },
   { command: 'post', description: 'Post a new hustle' },
 ]).then(() => console.log('✅ Commands set!')).catch(console.error);
 
 // Set extra commands for admin only
 bot.setMyCommands([
   { command: 'menu',   description: 'Main menu' },
-  { command: 'work',   description: 'My active jobs & applications' },
+  { command: 'work',   description: 'My active hustles' },
   { command: 'post',   description: 'Post a new hustle' },
   { command: 'banned', description: 'View banned users' },
   { command: 'admin',  description: 'All jobs (admin)' },
