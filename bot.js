@@ -1254,14 +1254,12 @@ Keep hustling! 💪`,
       defaultPinCallback = `manage_job_${hiring[0].id}`;
     }
 
-    // Auto-set default pinnedJobId if not set and refresh pin
+    // Auto-set default pinnedJobId if not set
     if (!pinnedJobId && defaultPinJobId) {
       await db.collection('users').doc(String(userId)).update({ pinnedJobId: defaultPinJobId });
-      await updateUserPin(userId);
-    } else if (!pinnedMsgId) {
-      // Pin missing — refresh
-      await updateUserPin(userId);
     }
+    // Always refresh pin when Live is tapped
+    await updateUserPin(userId);
 
     let text = '🔴 *Husssle Live*\n\n👀 *Are you working or waiting? Check Live*\n\n';
     const buttons = [];
