@@ -313,46 +313,68 @@ bot.onText(/\/menu/, (msg) => {
 });
 
 bot.onText(/\/work/, async (msg) => {
-  const user = await getUser(msg.from);
-  const apps = await getUserApplications(msg.from.id);
-  const active = apps.filter(a => a.status === 'accepted');
-  const done = apps.filter(a => a.status === 'done');
-  const pending = apps.filter(a => a.status === 'pending');
+  const userId = msg.from.id;
+  await getUser(msg.from);
+
+  // Worker side — applications
+  const apps = await getUserApplications(userId);
+  const active   = apps.filter(a => a.status === 'accepted');
+  const pending  = apps.filter(a => a.status === 'pending');
   const rejected = apps.filter(a => a.status === 'rejected');
 
-  if (!apps.length) {
-    await showState(msg.chat.id, msg.from.id, '📬 *My Work*\n\nYou haven\'t applied to any hustles yet.', { reply_markup: { inline_keyboard: [[{ text: '← Menu', callback_data: 'menu_back' }]] } });
+  // Poster side — posted jobs that are active
+  const postedSnap = await db.collection('jobs')
+    .where('posterId', '==', userId)
+    .where('status', 'in', ['open', 'taken'])
+    .get();
+  const postedJobs = postedSnap.docs.map(d => d.data());
+
+  const hasAnything = active.length || pending.length || rejected.length || postedJobs.length;
+
+  if (!hasAnything) {
+    await showState(msg.chat.id, userId, '📬 *My Active Jobs*\n\nYou have no active jobs or applications.', { reply_markup: { inline_keyboard: [[{ text: '← Menu', callback_data: 'menu_back' }]] } });
     return;
   }
 
-  let text = '📬 *My Work*\n\n';
+  let text = '📬 *My Active Jobs*\n\n';
   const buttons = [];
 
+  // Posted jobs section
+  if (postedJobs.length) {
+    text += '📌 *Jobs I posted:*\n';
+    postedJobs.forEach(j => {
+      const status = j.status === 'open' ? '🟢 Open' : '🟡 In progress';
+      text += `${status} *${j.title}* · KES ${j.pay}\n`;
+      buttons.push([{ text: `${j.status === 'open' ? '🟢' : '🟡'} ${j.title} — KES ${j.pay}`, callback_data: `manage_job_${j.id}` }]);
+    });
+    text += '\n';
+  }
+
+  // Active worker jobs
   if (active.length) {
-    text += '━━━━━━━━━━━━━━━\n🚨 *ACTIVE JOBS* 🚨\n━━━━━━━━━━━━━━━\n\n';
+    text += '🔨 *Jobs I\'m working on:*\n';
     active.forEach(a => {
       text += `🔨 *${a.jobTitle}* · KES ${a.jobPay}\n`;
       buttons.push([{ text: `🔨 ${a.jobTitle} — KES ${a.jobPay}`, callback_data: `worker_job_${a.jobId}` }]);
     });
     text += '\n';
   }
+
+  // Pending applications
   if (pending.length) {
-    text += `⏳ *Pending (${pending.length})*\n`;
+    text += `⏳ *Pending applications (${pending.length})*\n`;
     pending.forEach(a => { text += `• ${a.jobTitle} · KES ${a.jobPay}\n`; });
     text += '\n';
   }
+
+  // Rejected
   if (rejected.length) {
     text += `❌ *Not selected (${rejected.length})*\n`;
     rejected.forEach(a => { text += `• ${a.jobTitle}\n`; });
-    text += '\n';
-  }
-  if (done.length) {
-    text += `✅ *Done (${done.length})*\n`;
-    done.forEach(a => { text += `• ${a.jobTitle} · KES ${a.jobPay}\n`; });
   }
 
   buttons.push([{ text: '← Menu', callback_data: 'menu_back' }]);
-  await showState(msg.chat.id, msg.from.id, text, { reply_markup: { inline_keyboard: buttons } });
+  await showState(msg.chat.id, userId, text, { reply_markup: { inline_keyboard: buttons } });
 });
 
 bot.onText(/\/jobs/, (msg) => {
