@@ -1244,6 +1244,28 @@ bot.on('message', async (msg) => {
 
   if (s.step === 'post_title') {
     if (!text) { bot.sendMessage(chatId, '⚠️ Please type a title.'); return; }
+    // Gate: check pending feedback even mid-flow
+    const pendingFbCheck = await hasPendingFeedback(userId);
+    if (pendingFbCheck) {
+      clearSession(userId);
+      const s2 = getSession(userId);
+      s2.step = 'write_review_pending';
+      s2.draft.pendingFeedbackDocId = pendingFbCheck.docId;
+      s2.draft.pendingFeedbackToId  = pendingFbCheck.toUserId;
+      s2.draft.pendingFeedbackStars = null;
+      s2.draft.afterFeedback = { action: 'post' };
+      bot.sendMessage(chatId,
+        `⚠️ *Before you can post, you need to leave feedback!*\n\nJob: *${pendingFbCheck.jobTitle}*\n\nFirst, rate your experience (1-5 stars):`,
+        { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[
+          { text: '⭐1', callback_data: 'pending_fb_stars_1' },
+          { text: '⭐2', callback_data: 'pending_fb_stars_2' },
+          { text: '⭐3', callback_data: 'pending_fb_stars_3' },
+          { text: '⭐4', callback_data: 'pending_fb_stars_4' },
+          { text: '⭐5', callback_data: 'pending_fb_stars_5' },
+        ]] }}
+      );
+      return;
+    }
     const bannedTitle = containsBannedWords(text);
     if (bannedTitle) {
       bot.sendMessage(chatId, `⚠️ Your title contains inappropriate content. Please rephrase.`);
