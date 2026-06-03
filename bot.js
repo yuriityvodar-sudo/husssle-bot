@@ -1811,7 +1811,7 @@ async function updateDoneChannelPost(job, acceptedApp) {
     `💰 KES ${job.pay} earned by *${workerName}*\n` +
     `${workerRatingDisplay}` + (workerCompletedJobs > 0 ? ` · ${workerCompletedJobs} jobs done` : '') + `\n\n` +
     `👤 Posted by ${job.posterName}\n` +
-    `${posterRatingDisplay}` + (posterTotalSpent > 0 ? ` · KES ${posterTotalSpent.toLocaleString()} paid out to workers on Husssle` : '') + `\n` +
+    `${posterRatingDisplay}\n` + (posterTotalSpent > 0 ? `💸 KES ${posterTotalSpent.toLocaleString()} · paid to real people in Nairobi\n` : '') +
     workerReviewText +
     posterReviewText +
     `\n\n🤝 Another hustle done in Nairobi!\n` +
