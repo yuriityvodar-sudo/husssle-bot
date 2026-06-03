@@ -982,6 +982,15 @@ Keep hustling! 💪`,
     const acceptedApp = apps.find(a => String(a.workerId) === String(userId));
     if (!acceptedApp) return;
 
+    // Create pendingFeedback docs for both sides to enforce gate
+    const feedbackBase = { jobId: String(jobId), jobTitle: job.title, createdAt: Date.now() };
+    await db.collection('pendingFeedback').doc(`${jobId}_${posterId}_poster`).set({
+      ...feedbackBase, fromUserId: posterId, toUserId: userId, type: 'poster'
+    });
+    await db.collection('pendingFeedback').doc(`${jobId}_${userId}_worker`).set({
+      ...feedbackBase, fromUserId: userId, toUserId: posterId, type: 'worker'
+    });
+
     // Now ask both sides to leave review
     const posterSession = getSession(posterId);
     posterSession.step = 'completion_review_comment';
