@@ -955,32 +955,70 @@ Keep hustling! 💪`,
       return;
     }
 
-    // Ask poster to review first — comment then stars
-    const s = getSession(userId);
-    s.step = 'completion_review_comment';
-    s.draft.completionJobId     = jobId;
-    s.draft.completionWorkerId  = acceptedApp.workerId;
-    s.draft.completionWorkerName = acceptedApp.workerName;
-    s.draft.completionRole      = 'poster';
+    // Send confirmation request to worker
+    bot.sendMessage(acceptedApp.workerId,
+      `✅ *Job Completion Request*\n\n*${job.posterName}* says the job *${job.title}* is done.\n\nDo you confirm?`,
+      { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [
+        [{ text: '✅ Yes, it's done!', callback_data: `worker_confirm_done_${jobId}_${userId}` }],
+        [{ text: '❌ Not yet', callback_data: `worker_decline_done_${jobId}_${userId}` }],
+      ]}}
+    ).catch(() => {});
 
     bot.sendMessage(chatId,
-      `👋 *Hey! How did "${job.title}" go?*\n\nTell us in a few words — what was done, how it went. This closes the job and builds your reputation on Husssle 🌟`,
-      { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '❌ Cancel', callback_data: 'cancel' }]] } }
-    ).then(m => { s.draft.lastMsgId = m.message_id; });
+      `✅ *Completion request sent!*\n\nWaiting for *${acceptedApp.workerName}* to confirm. You'll both be asked to leave a review once confirmed.`,
+      { parse_mode: 'Markdown' }
+    );
+    return;
+  }
 
-    // Also prompt worker simultaneously
-    const workerSession = getSession(acceptedApp.workerId);
+  if (data.startsWith('worker_confirm_done_')) {
+    const parts = data.replace('worker_confirm_done_', '').split('_');
+    const jobId = parts[0];
+    const posterId = parseInt(parts[1]);
+    const job = await getJob(jobId);
+    if (!job) return;
+
+    const apps = await getJobApplications(jobId);
+    const acceptedApp = apps.find(a => String(a.workerId) === String(userId));
+    if (!acceptedApp) return;
+
+    // Now ask both sides to leave review
+    const posterSession = getSession(posterId);
+    posterSession.step = 'completion_review_comment';
+    posterSession.draft.completionJobId      = jobId;
+    posterSession.draft.completionWorkerId   = userId;
+    posterSession.draft.completionWorkerName = user.name;
+    posterSession.draft.completionRole       = 'poster';
+
+    bot.sendMessage(posterId,
+      `🎉 *${user.name} confirmed the job is done!*\n\n👋 How did *"${job.title}"* go?\n\nTell us in a few words — what was done, how it went. This closes the job and builds your reputation on Husssle 🌟`,
+      { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '❌ Cancel', callback_data: 'cancel' }]] } }
+    ).then(m => { posterSession.draft.lastMsgId = m.message_id; }).catch(() => {});
+
+    const workerSession = getSession(userId);
     workerSession.step = 'completion_review_comment';
-    workerSession.draft.completionJobId     = jobId;
-    workerSession.draft.completionPosterId  = userId;
+    workerSession.draft.completionJobId      = jobId;
+    workerSession.draft.completionPosterId   = posterId;
     workerSession.draft.completionPosterName = job.posterName;
-    workerSession.draft.completionRole      = 'worker';
+    workerSession.draft.completionRole       = 'worker';
 
-    bot.sendMessage(acceptedApp.workerId,
-      `👋 *Hey! How did "${job.title}" go?*\n\nTell us in a few words — what was done, how it went. This closes the job and builds your reputation on Husssle 🌟`,
+    bot.sendMessage(chatId,
+      `👋 How did *"${job.title}"* go?\n\nTell us in a few words — what was done, how it went. This closes the job and builds your reputation on Husssle 🌟`,
       { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '❌ Cancel', callback_data: 'cancel' }]] } }
-    ).then(m => { workerSession.draft.lastMsgId = m.message_id; }).catch(() => {});
+    ).then(m => { workerSession.draft.lastMsgId = m.message_id; });
+    return;
+  }
 
+  if (data.startsWith('worker_decline_done_')) {
+    const parts = data.replace('worker_decline_done_', '').split('_');
+    const jobId = parts[0];
+    const posterId = parseInt(parts[1]);
+    const job = await getJob(jobId);
+    bot.sendMessage(posterId,
+      `ℹ️ *${user.name}* says the job isn't done yet. Keep in touch! 💪`,
+      { parse_mode: 'Markdown' }
+    ).catch(() => {});
+    bot.sendMessage(chatId, `✅ Customer has been notified.`);
     return;
   }
 
