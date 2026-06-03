@@ -1571,16 +1571,18 @@ async function showApplicants(chatId, userId, jobId) {
 
 async function acceptApplicant(chatId, posterId, jobId, workerId) {
   const job  = await getJob(jobId);
-  if (!job || job.posterId !== posterId) return;
+  if (!job) { bot.sendMessage(chatId, '❌ Job not found.'); return; }
+  // Compare as strings to avoid type mismatch
+  if (String(job.posterId) !== String(posterId)) { bot.sendMessage(chatId, '❌ Not your job.'); return; }
   const apps = await getJobApplications(jobId);
-  const app  = apps.find(a => a.workerId === workerId);
-  if (!app) return;
+  const app  = apps.find(a => String(a.workerId) === String(workerId));
+  if (!app) { bot.sendMessage(chatId, '❌ Applicant not found.'); return; }
 
   // update all applications
   const batch = db.batch();
   const appsSnap = await db.collection('applications').where('jobId', '==', String(jobId)).get();
   appsSnap.docs.forEach(doc => {
-    batch.update(doc.ref, { status: doc.data().workerId === workerId ? 'accepted' : 'rejected' });
+    batch.update(doc.ref, { status: String(doc.data().workerId) === String(workerId) ? 'accepted' : 'rejected' });
   });
   batch.update(db.collection('jobs').doc(String(jobId)), { status: 'taken' });
   await batch.commit();
