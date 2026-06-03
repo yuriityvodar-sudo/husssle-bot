@@ -312,8 +312,47 @@ bot.onText(/\/menu/, (msg) => {
   showMenu(msg.chat.id, msg.from.id);
 });
 
-bot.onText(/\/work/, (msg) => {
-  bot.sendMessage(msg.chat.id, 'Loading your work...', { reply_markup: { inline_keyboard: [[{ text: '📬 My Work', callback_data: 'my_applications' }]] } });
+bot.onText(/\/work/, async (msg) => {
+  const user = await getUser(msg.from);
+  const apps = await getUserApplications(msg.from.id);
+  const active = apps.filter(a => a.status === 'accepted');
+  const done = apps.filter(a => a.status === 'done');
+  const pending = apps.filter(a => a.status === 'pending');
+  const rejected = apps.filter(a => a.status === 'rejected');
+
+  if (!apps.length) {
+    await showState(msg.chat.id, msg.from.id, '📬 *My Work*\n\nYou haven\'t applied to any hustles yet.', { reply_markup: { inline_keyboard: [[{ text: '← Menu', callback_data: 'menu_back' }]] } });
+    return;
+  }
+
+  let text = '📬 *My Work*\n\n';
+  const buttons = [];
+
+  if (active.length) {
+    text += '━━━━━━━━━━━━━━━\n🚨 *ACTIVE JOBS* 🚨\n━━━━━━━━━━━━━━━\n\n';
+    active.forEach(a => {
+      text += `🔨 *${a.jobTitle}* · KES ${a.jobPay}\n`;
+      buttons.push([{ text: `🔨 ${a.jobTitle} — KES ${a.jobPay}`, callback_data: `worker_job_${a.jobId}` }]);
+    });
+    text += '\n';
+  }
+  if (pending.length) {
+    text += `⏳ *Pending (${pending.length})*\n`;
+    pending.forEach(a => { text += `• ${a.jobTitle} · KES ${a.jobPay}\n`; });
+    text += '\n';
+  }
+  if (rejected.length) {
+    text += `❌ *Not selected (${rejected.length})*\n`;
+    rejected.forEach(a => { text += `• ${a.jobTitle}\n`; });
+    text += '\n';
+  }
+  if (done.length) {
+    text += `✅ *Done (${done.length})*\n`;
+    done.forEach(a => { text += `• ${a.jobTitle} · KES ${a.jobPay}\n`; });
+  }
+
+  buttons.push([{ text: '← Menu', callback_data: 'menu_back' }]);
+  await showState(msg.chat.id, msg.from.id, text, { reply_markup: { inline_keyboard: buttons } });
 });
 
 bot.onText(/\/jobs/, (msg) => {
@@ -1956,14 +1995,21 @@ async function cleanupExpiredJobs() {
 
 console.log('🤖 Husssle bot is running with Firestore...');
 
+// Set commands for regular users
+bot.setMyCommands([
+  { command: 'menu', description: 'Main menu' },
+  { command: 'work', description: 'My active jobs & applications' },
+  { command: 'post', description: 'Post a new hustle' },
+]).then(() => console.log('✅ Commands set!')).catch(console.error);
+
+// Set extra commands for admin only
 bot.setMyCommands([
   { command: 'menu',   description: 'Main menu' },
   { command: 'work',   description: 'My active jobs & applications' },
-  { command: 'jobs',   description: 'Browse open hustles' },
   { command: 'post',   description: 'Post a new hustle' },
   { command: 'banned', description: 'View banned users' },
-  { command: 'admin',  description: 'Completed jobs (admin)' },
-]).then(() => console.log('✅ Commands set!')).catch(console.error);
+  { command: 'admin',  description: 'All jobs (admin)' },
+], { scope: { type: 'chat', chat_id: 889114803 } }).then(() => console.log('✅ Admin commands set!')).catch(console.error);
 
 // Run cleanup on startup + every 30 minutes
 cleanupExpiredJobs();
