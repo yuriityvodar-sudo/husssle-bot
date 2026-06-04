@@ -1954,7 +1954,18 @@ async function updateUserPin(userId) {
       .where('workerId', '==', userId)
       .where('status', '==', 'accepted')
       .get();
-    const workerJobs = workerSnap.docs.map(d => d.data()).sort((a, b) => (a.appliedAt || 0) - (b.appliedAt || 0));
+    const workerJobsRaw = workerSnap.docs.map(d => d.data()).sort((a, b) => (a.appliedAt || 0) - (b.appliedAt || 0));
+    const workerJobs = await Promise.all(workerJobsRaw.map(async a => {
+      if (a.posterId) {
+        const posterDoc = await db.collection('users').doc(String(a.posterId)).get();
+        if (posterDoc.exists) {
+          const pd = posterDoc.data();
+          a.posterName = pd.name || a.posterName || '';
+          a.posterPhone = pd.phone || '';
+        }
+      }
+      return a;
+    }));
 
     const takenSnap = await db.collection('jobs')
       .where('posterId', '==', userId)
@@ -1966,7 +1977,14 @@ async function updateUserPin(userId) {
         .where('jobId', '==', String(jobData.id))
         .where('status', '==', 'accepted')
         .limit(1).get();
-      if (!appSnap.empty) jobData.workerName = appSnap.docs[0].data().workerName || '';
+      if (!appSnap.empty) {
+        const appData = appSnap.docs[0].data();
+        jobData.workerName = appData.workerName || '';
+        if (appData.workerId) {
+          const workerDoc = await db.collection('users').doc(String(appData.workerId)).get();
+          if (workerDoc.exists) jobData.workerPhone = workerDoc.data().phone || '';
+        }
+      }
       return jobData;
     }));
 
@@ -2016,6 +2034,7 @@ async function updateUserPin(userId) {
       workerJobs.forEach(a => {
         pinText += `• ${a.jobTitle} — KES ${a.jobPay}`;
         if (a.posterName) pinText += ` · for ${a.posterName}`;
+        if (a.posterPhone) pinText += ` · 📱 ${a.posterPhone}`;
         pinText += `\n`;
       });
     }
@@ -2023,9 +2042,10 @@ async function updateUserPin(userId) {
     if (takenJobs.length) {
       pinText += `\n👀 *Working for me:*\n`;
       takenJobs.forEach(j => {
-        const workerName = j.workerName || j.acceptedWorkerName || '';
+        const workerName = j.workerName || '';
         pinText += `• ${j.title} — KES ${j.pay}`;
         if (workerName) pinText += ` · by ${workerName}`;
+        if (j.workerPhone) pinText += ` · 📱 ${j.workerPhone}`;
         pinText += `\n`;
       });
     }
