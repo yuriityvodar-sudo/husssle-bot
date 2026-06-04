@@ -307,7 +307,11 @@ bot.onText(/\/start(?:\s(.+))?/, async (msg, match) => {
   // Restore pin if missing
   updateUserPin(msg.from.id).catch(() => {});
 
-  showMenu(msg.chat.id, msg.from.id, '👋 *Karibu Husssle!*\n\nThe hustle marketplace for Nairobi.\nFind work or get work done. Simple.\n\n🤖 *This bot is your personal hustle manager:*\n• Post a job → workers apply → you pick the best one\n• Looking for work → browse & apply in seconds\n• Everything happens here — no calls, no WhatsApp groups\n• Get rated after every job to build your reputation\n\nWhat do you want to do?');
+  bot.sendMessage(msg.chat.id,
+    '👋 *Karibu Husssle!*\n\nThe hustle marketplace for Nairobi.\nFind work or get work done. Simple.\n\n🤖 *This bot is your personal hustle manager:*\n• Post a job → workers apply → you pick the best one\n• Looking for work → browse & apply in seconds\n• Everything happens here — no calls, no WhatsApp groups\n• Get rated after every job to build your reputation',
+    { parse_mode: 'Markdown' }
+  );
+  showMenu(msg.chat.id, msg.from.id, 'What do you want to do?');
 });
 
 bot.onText(/\/menu/, (msg) => {
@@ -2035,22 +2039,26 @@ async function updateUserPin(userId) {
     }
 
     if (workerJobs.length) {
-      pinText += `\n🔨 *Jobs I'm working on:*\n`;
+      pinText += `\n🔨 *Active job*\n`;
       workerJobs.forEach(a => {
-        pinText += `• ${a.jobTitle} — KES ${a.jobPay}`;
-        if (a.posterName) pinText += ` · for ${a.posterName}`;
-        if (a.posterPhone) pinText += ` · 📱 ${a.posterPhone}`;
+        pinText += `*${a.jobTitle}* · KES ${a.jobPay}\n`;
+        if (a.jobLocation) pinText += `📍 ${a.jobLocation}\n`;
+        if (a.posterName)  pinText += `👤 Customer: ${a.posterName}\n`;
+        if (a.posterPhone) pinText += `📱 Reach them: ${a.posterPhone}\n`;
+        pinText += `_${a.posterName ? a.posterName : 'Your customer'} is counting on you\. Go\!_\n`;
         pinText += `\n`;
       });
     }
 
     if (takenJobs.length) {
-      pinText += `\n👀 *Working for me:*\n`;
+      pinText += `\n👀 *Being done for you*\n`;
       takenJobs.forEach(j => {
         const workerName = j.workerName || '';
-        pinText += `• ${j.title} — KES ${j.pay}`;
-        if (workerName) pinText += ` · by ${workerName}`;
-        if (j.workerPhone) pinText += ` · 📱 ${j.workerPhone}`;
+        pinText += `*${j.title}* · KES ${j.pay}\n`;
+        if (j.location)    pinText += `📍 ${j.location}\n`;
+        if (workerName)    pinText += `👤 Worker: ${workerName}\n`;
+        if (j.workerPhone) pinText += `📱 Reach them: ${j.workerPhone}\n`;
+        pinText += `_Let them work\. Stay patient\._\n`;
         pinText += `\n`;
       });
     }
