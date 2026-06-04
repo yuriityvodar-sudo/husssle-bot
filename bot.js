@@ -308,10 +308,9 @@ bot.onText(/\/start(?:\s(.+))?/, async (msg, match) => {
   updateUserPin(msg.from.id).catch(() => {});
 
   bot.sendMessage(msg.chat.id,
-    '👋 *Karibu Husssle!*\n\nThe hustle marketplace for Nairobi.\nFind work or get work done. Simple.\n\n🤖 *This bot is your personal hustle manager:*\n• Post a job → workers apply → you pick the best one\n• Looking for work → browse & apply in seconds\n• Everything happens here — no calls, no WhatsApp groups\n• Get rated after every job to build your reputation',
+    '👋 *Karibu Husssle!*\n\nThe hustle marketplace for Nairobi.\nFind work or get work done. Simple.\n\n🤖 *This bot is your personal hustle manager:*\n• Post a job → workers apply → you pick the best one\n• Looking for work → browse & apply in seconds\n• Everything happens here — no calls, no WhatsApp groups\n• Get rated after every job to build your reputation\n\nWhat do you want to do?',
     { parse_mode: 'Markdown' }
   );
-  showMenu(msg.chat.id, msg.from.id, 'What do you want to do?');
 });
 
 bot.onText(/\/menu/, (msg) => {
