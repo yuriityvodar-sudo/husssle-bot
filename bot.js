@@ -2037,6 +2037,11 @@ async function updateUserPin(userId) {
       pinText += `🔴 *Husssle Live*\n`;
     }
 
+    // Subtitle — bridge between header and sections
+    if (total > 0) {
+      pinText += `\n_${total} hustle${total > 1 ? 's' : ''} in motion right now_\n`;
+    }
+
     if (workerJobs.length) {
       pinText += `\n🔨 *Active job*\n`;
       workerJobs.forEach(a => {
@@ -2050,7 +2055,9 @@ async function updateUserPin(userId) {
     }
 
     if (takenJobs.length) {
-      pinText += `\n👀 *Being done for you*\n`;
+      pinText += `\n— — — — — — — — — —\n`;
+      pinText += `\n\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\u2015\n`;
+      pinText += `👀 *Being done for you*\n`;
       takenJobs.forEach(j => {
         const workerName = j.workerName || '';
         pinText += `*${j.title}* · KES ${j.pay}\n`;
