@@ -2051,7 +2051,7 @@ async function updateUserPin(userId) {
     }
 
     if (takenJobs.length) {
-      pinText += `\n— meanwhile —\n`;
+      pinText += `\n✦\n`;
       pinText += `👀 *Being done for you*\n`;
       takenJobs.forEach(j => {
         const workerName = j.workerName || '';
