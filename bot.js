@@ -1995,7 +1995,7 @@ async function updateUserPin(userId) {
       : '🔴';
     const pinText = pinnedJob
       ? (pinnedCallback.startsWith('worker')
-          ? `🔴 *On it: ${pinnedJob.title}*`
+          ? `🔴 *Working: ${pinnedJob.title}*`
           : `🔴 *In progress: ${pinnedJob.title}*`)
       : `🔴 *Husssle Live*`;
     const pinButton = pinnedJob
