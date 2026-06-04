@@ -1991,14 +1991,16 @@ async function updateUserPin(userId) {
     }
 
     const emoji = pinnedJob
-      ? (pinnedCallback.startsWith('worker') ? '🔨' : '👔')
+      ? (pinnedCallback.startsWith('worker') ? '🔴' : '🔴')
       : '🔴';
     const pinText = pinnedJob
-      ? `${emoji} *${pinnedJob.title}*`
+      ? (pinnedCallback.startsWith('worker')
+          ? `🔴 *Working: ${pinnedJob.title}*`
+          : `🔴 *In progress: ${pinnedJob.title}*`)
       : `🔴 *Husssle Live*`;
     const pinButton = pinnedJob
-      ? [{ text: `${emoji} ${pinnedJob.title} — KES ${pinnedJob.pay}`, callback_data: 'noop' }]
-      : [{ text: '🔴 Husssle Live 🔴', callback_data: 'live_now' }];
+      ? [{ text: '🟢 Check my status', callback_data: 'live_now' }]
+      : [{ text: '🟢 Check my status', callback_data: 'live_now' }];
 
     const pinMsg = await bot.sendMessage(userId,
       pinText,
