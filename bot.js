@@ -1995,12 +1995,12 @@ async function updateUserPin(userId) {
       : '🔴';
     const pinText = pinnedJob
       ? (pinnedCallback.startsWith('worker')
-          ? `🔴 *Working: ${pinnedJob.title}*`
+          ? `🔴 *On it: ${pinnedJob.title}*`
           : `🔴 *In progress: ${pinnedJob.title}*`)
       : `🔴 *Husssle Live*`;
     const pinButton = pinnedJob
-      ? [{ text: '🟢 Check my status', callback_data: 'live_now' }]
-      : [{ text: '🟢 Check my status', callback_data: 'live_now' }];
+      ? [{ text: "🟢 What's live", callback_data: 'live_now' }]
+      : [{ text: "🟢 What's live", callback_data: 'live_now' }];
 
     const pinMsg = await bot.sendMessage(userId,
       pinText,
