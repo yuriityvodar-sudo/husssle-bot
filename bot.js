@@ -304,6 +304,9 @@ bot.onText(/\/start(?:\s(.+))?/, async (msg, match) => {
     return;
   }
 
+  // Restore pin if missing
+  updateUserPin(msg.from.id).catch(() => {});
+
   showMenu(msg.chat.id, msg.from.id, '👋 *Karibu Husssle!*\n\nThe hustle marketplace for Nairobi.\nFind work or get work done. Simple.\n\n🤖 *This bot is your personal hustle manager:*\n• Post a job → workers apply → you pick the best one\n• Looking for work → browse & apply in seconds\n• Everything happens here — no calls, no WhatsApp groups\n• Get rated after every job to build your reputation\n\nWhat do you want to do?');
 });
 
@@ -1198,6 +1201,11 @@ Keep hustling! 💪`,
     return;
   }
 
+  if (data === 'noop') {
+    bot.answerCallbackQuery(callbackQuery.id).catch(() => {});
+    return;
+  }
+
   if (data === 'menu_back') {
     showMenu(chatId, userId);
     return;
@@ -1253,13 +1261,6 @@ Keep hustling! 💪`,
       defaultPinText = `👔 ${hiring[0].title} — KES ${hiring[0].pay}`;
       defaultPinCallback = `manage_job_${hiring[0].id}`;
     }
-
-    // Auto-set default pinnedJobId if not set
-    if (!pinnedJobId && defaultPinJobId) {
-      await db.collection('users').doc(String(userId)).update({ pinnedJobId: defaultPinJobId });
-    }
-    // Always refresh pin when Live is tapped
-    await updateUserPin(userId);
 
     let text = '🔴 *Husssle Live*\n\n👀 *Are you working or waiting? Check Live*\n\n';
     const buttons = [];
@@ -1989,13 +1990,19 @@ async function updateUserPin(userId) {
       return;
     }
 
+    const emoji = pinnedJob
+      ? (pinnedCallback.startsWith('worker') ? '🔨' : '👔')
+      : '🔴';
+    const pinText = pinnedJob
+      ? `${emoji} *${pinnedJob.title}*`
+      : `🔴 *Husssle Live*`;
+    const pinButton = pinnedJob
+      ? [{ text: `${emoji} ${pinnedJob.title} — KES ${pinnedJob.pay}`, callback_data: 'noop' }]
+      : [{ text: '🔴 Husssle Live 🔴', callback_data: 'live_now' }];
+
     const pinMsg = await bot.sendMessage(userId,
-      `🔴 *Active hustles (${total})*`,
-      { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [
-        pinnedJob
-          ? [{ text: `${pinnedCallback.startsWith('worker') ? '🔨' : '👔'} ${pinnedJob.title} — KES ${pinnedJob.pay}`, callback_data: pinnedCallback }]
-          : [{ text: '🔴 Husssle Live 🔴', callback_data: 'live_now' }],
-      ]}}
+      pinText,
+      { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [pinButton] }}
     );
     await bot.pinChatMessage(userId, pinMsg.message_id, { disable_notification: true }).catch(() => {});
     await db.collection('users').doc(String(userId)).update({ pinnedMsgId: pinMsg.message_id });
