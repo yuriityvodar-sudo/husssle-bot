@@ -1960,7 +1960,15 @@ async function updateUserPin(userId) {
       .where('posterId', '==', userId)
       .where('status', '==', 'taken')
       .get();
-    const takenJobs = takenSnap.docs.map(d => ({ ...d.data(), docId: d.id }));
+    const takenJobs = await Promise.all(takenSnap.docs.map(async d => {
+      const jobData = { ...d.data(), docId: d.id };
+      const appSnap = await db.collection('applications')
+        .where('jobId', '==', String(jobData.id))
+        .where('status', '==', 'accepted')
+        .limit(1).get();
+      if (!appSnap.empty) jobData.workerName = appSnap.docs[0].data().workerName || '';
+      return jobData;
+    }));
 
     const openSnap = await db.collection('jobs')
       .where('posterId', '==', userId)
@@ -1990,21 +1998,41 @@ async function updateUserPin(userId) {
       return;
     }
 
-    const emoji = pinnedJob
-      ? (pinnedCallback.startsWith('worker') ? '🔴' : '🔴')
-      : '🔴';
-    const pinText = pinnedJob
-      ? (pinnedCallback.startsWith('worker')
-          ? `🔴 *Working: ${pinnedJob.title}*`
-          : `🔴 *In progress: ${pinnedJob.title}*`)
-      : `🔴 *Husssle Live*`;
-    const pinButton = pinnedJob
-      ? [{ text: "🟢 What's live", callback_data: 'live_now' }]
-      : [{ text: "🟢 What's live", callback_data: 'live_now' }];
+    // Build rich pin message text
+    let pinText = '';
+
+    if (workerJobs.length) {
+      pinText += `🔴 *Working: ${workerJobs[0].jobTitle}*\n`;
+    } else if (takenJobs.length) {
+      pinText += `🔴 *In progress: ${takenJobs[0].title}*\n`;
+    } else if (openJobs.length) {
+      pinText += `🔴 *Open: ${openJobs[0].title}*\n`;
+    } else {
+      pinText += `🔴 *Husssle Live*\n`;
+    }
+
+    if (workerJobs.length) {
+      pinText += `\n🔨 *Jobs I'm working on:*\n`;
+      workerJobs.forEach(a => {
+        pinText += `• ${a.jobTitle} — KES ${a.jobPay}`;
+        if (a.posterName) pinText += ` · for ${a.posterName}`;
+        pinText += `\n`;
+      });
+    }
+
+    if (takenJobs.length) {
+      pinText += `\n👔 *Working for me:*\n`;
+      takenJobs.forEach(j => {
+        const workerName = j.workerName || j.acceptedWorkerName || '';
+        pinText += `• ${j.title} — KES ${j.pay}`;
+        if (workerName) pinText += ` · by ${workerName}`;
+        pinText += `\n`;
+      });
+    }
 
     const pinMsg = await bot.sendMessage(userId,
-      pinText,
-      { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [pinButton] }}
+      pinText.trim(),
+      { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: "🟢 What's live", callback_data: 'live_now' }]] }}
     );
     await bot.pinChatMessage(userId, pinMsg.message_id, { disable_notification: true }).catch(() => {});
     await db.collection('users').doc(String(userId)).update({ pinnedMsgId: pinMsg.message_id });
