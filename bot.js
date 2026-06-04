@@ -2021,7 +2021,7 @@ async function updateUserPin(userId) {
     }
 
     if (takenJobs.length) {
-      pinText += `\n👔 *Working for me:*\n`;
+      pinText += `\n👀 *Working for me:*\n`;
       takenJobs.forEach(j => {
         const workerName = j.workerName || j.acceptedWorkerName || '';
         pinText += `• ${j.title} — KES ${j.pay}`;
