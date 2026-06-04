@@ -1956,12 +1956,17 @@ async function updateUserPin(userId) {
       .get();
     const workerJobsRaw = workerSnap.docs.map(d => d.data()).sort((a, b) => (a.appliedAt || 0) - (b.appliedAt || 0));
     const workerJobs = await Promise.all(workerJobsRaw.map(async a => {
-      if (a.posterId) {
-        const posterDoc = await db.collection('users').doc(String(a.posterId)).get();
-        if (posterDoc.exists) {
-          const pd = posterDoc.data();
-          a.posterName = pd.name || a.posterName || '';
-          a.posterPhone = pd.phone || '';
+      // Get posterId from job doc, then fetch poster user
+      const jobDoc = await db.collection('jobs').doc(String(a.jobId)).get();
+      if (jobDoc.exists) {
+        const posterId = jobDoc.data().posterId;
+        if (posterId) {
+          const posterDoc = await db.collection('users').doc(String(posterId)).get();
+          if (posterDoc.exists) {
+            const pd = posterDoc.data();
+            a.posterName = pd.name || a.posterName || '';
+            a.posterPhone = pd.phone || '';
+          }
         }
       }
       return a;
