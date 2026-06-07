@@ -936,13 +936,22 @@ bot.on('callback_query', async (query) => {
     const jobId = data.replace('request_leave_', '');
     const job = await getJob(jobId);
     if (!job) return;
-    bot.sendMessage(job.posterId,
-      `🚪 *Leave Request*\n\n*${user.name}* wants to leave the job *${job.title}*.\n\nApprove?`,
-      { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [
-        [{ text: '✅ Approve', callback_data: `approve_leave_${jobId}_${userId}` }],
-      ]}}
-    ).catch(() => {});
-    bot.sendMessage(chatId, '✅ Request sent to customer. Waiting for response.');
+    // Check if leave request already exists
+    const existingLeave = await db.collection('leaveRequests').doc(String(jobId)).get();
+    if (existingLeave.exists) {
+      bot.sendMessage(chatId, '⏳ You already sent a leave request. Waiting for the customer to respond.');
+      return;
+    }
+    // Ask worker for reason
+    const s = getSession(userId);
+    s.step = 'leave_reason';
+    s.draft.leaveJobId = jobId;
+    s.draft.leaveJobTitle = job.title;
+    s.draft.leavePosterId = job.posterId;
+    await showState(chatId, userId,
+      `🚪 *Leave this job?*\n\nTell the customer why you want to leave. Type your reason:`,
+      {}
+    );
     return;
   }
 
@@ -952,6 +961,8 @@ bot.on('callback_query', async (query) => {
     const workerId = parseInt(parts[1]);
     const job = await getJob(jobId);
     if (!job) return;
+    // Clear leave request
+    await db.collection('leaveRequests').doc(String(jobId)).delete().catch(() => {});
     const appSnap = await db.collection('applications')
       .where('jobId', '==', String(jobId))
       .where('workerId', '==', workerId)
@@ -959,10 +970,29 @@ bot.on('callback_query', async (query) => {
     appSnap.docs.forEach(doc => doc.ref.update({ status: 'rejected' }));
     await db.collection('jobs').doc(String(jobId)).update({ status: 'open' });
     await updateChannelPost({ ...job, status: 'open' });
-    updateUserPin(userId).catch(() => {});
-    updateUserPin(workerId).catch(() => {});
-    bot.sendMessage(workerId, `✅ The customer approved your request. You've been removed from *${job.title}*.`, { parse_mode: 'Markdown' }).catch(() => {});
-    bot.sendMessage(chatId, `✅ *${job.title}* is back to Open. Worker has been notified.`, { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '← My jobs', callback_data: 'my_jobs' }]] } });
+    updateUserPin(userId, true).catch(() => {});
+    updateUserPin(workerId, true).catch(() => {});
+    await showState(workerId, workerId,
+      `✅ *Leave approved*\n\nThe customer approved your request. You've been removed from *${job.title}*.`,
+      {}
+    ).catch(() => {});
+    showMenu(chatId, userId, `✅ *${job.title}* is back to Open. Worker has been notified.`);
+    return;
+  }
+
+  if (data.startsWith('decline_leave_')) {
+    const parts = data.replace('decline_leave_', '').split('_');
+    const jobId = parts[0];
+    const workerId = parseInt(parts[1]);
+    // Clear leave request
+    await db.collection('leaveRequests').doc(String(jobId)).delete().catch(() => {});
+    await showState(workerId, workerId,
+      `❌ *Leave declined*\n\nThe customer wants you to stay on the job. Keep going! 💪`,
+      { reply_markup: { inline_keyboard: [
+        [{ text: '🔧 Manage this job', callback_data: `worker_job_${jobId}` }],
+      ]}}
+    ).catch(() => {});
+    showMenu(chatId, userId, '✅ Worker has been notified.');
     return;
   }
 
@@ -1285,6 +1315,14 @@ Keep hustling! 💪`,
     const myCompletionSnap = await db.collection('completionRequests').where('workerId', '==', userId).get();
     const myPendingCompletions = myCompletionSnap.docs.map(d => d.data());
 
+    // Urgent: leave requests pending my confirmation (as poster)
+    const leaveSnap = await db.collection('leaveRequests').where('posterId', '==', userId).get();
+    const pendingLeaves = leaveSnap.docs.map(d => d.data());
+
+    // Info: my leave requests pending poster confirmation (as worker)
+    const myLeaveSnap = await db.collection('leaveRequests').where('workerId', '==', userId).get();
+    const myPendingLeaves = myLeaveSnap.docs.map(d => d.data());
+
     const totalActive = working.length + hiring.length;
 
     if (totalActive === 0 && urgentApplicants.length === 0 && pendingApps.length === 0) {
@@ -1312,7 +1350,7 @@ Keep hustling! 💪`,
     let text = '🔴 *Husssle Live*\n\n';
 
     // URGENT section
-    const hasUrgent = urgentApplicants.length > 0 || pendingCompletions.length > 0;
+    const hasUrgent = urgentApplicants.length > 0 || pendingCompletions.length > 0 || pendingLeaves.length > 0;
     if (hasUrgent) {
       text += `⚠️ *Needs your attention*\n`;
       urgentApplicants.forEach(({ job, count }) => {
@@ -1321,14 +1359,20 @@ Keep hustling! 💪`,
       pendingCompletions.forEach(req => {
         text += `• *${req.jobTitle}* — ${req.workerName} says it's done\. Confirm?\n`;
       });
+      pendingLeaves.forEach(req => {
+        text += `• *${req.jobTitle}* — ${req.workerName} wants to leave\. Reason: ${req.reason}\n`;
+      });
       text += '\n';
     }
 
-    // Worker's pending completion requests
-    if (myPendingCompletions.length > 0) {
+    // Worker's pending requests
+    if (myPendingCompletions.length > 0 || myPendingLeaves.length > 0) {
       text += `⏳ *Awaiting confirmation*\n`;
       myPendingCompletions.forEach(req => {
         text += `• *${req.jobTitle}* — completion requested, waiting for customer\n`;
+      });
+      myPendingLeaves.forEach(req => {
+        text += `• *${req.jobTitle}* — leave requested, waiting for customer\n`;
       });
       text += '\n';
     }
@@ -1371,6 +1415,12 @@ Keep hustling! 💪`,
       buttons.push([
         { text: `✅ Confirm: ${req.jobTitle}`, callback_data: `mark_done_${req.jobId}` },
         { text: '❌ Not yet', callback_data: `decline_done_${req.jobId}_${req.workerId}` },
+      ]);
+    });
+    pendingLeaves.forEach(req => {
+      buttons.push([
+        { text: `✅ Let them go: ${req.jobTitle}`, callback_data: `approve_leave_${req.jobId}_${req.workerId}` },
+        { text: '❌ Stay', callback_data: `decline_leave_${req.jobId}_${req.workerId}` },
       ]);
     });
     if (pinnedJob) {
@@ -1477,6 +1527,39 @@ bot.on('message', async (msg) => {
     } else {
       startPostFlow(chatId, userId);
     }
+    return;
+  }
+
+  if (s.step === 'leave_reason') {
+    const reason = text && text.trim();
+    if (!reason || reason.length < 3) {
+      bot.sendMessage(chatId, '⚠️ Please type a reason (at least 3 characters):');
+      return;
+    }
+    const jobId = s.draft.leaveJobId;
+    const jobTitle = s.draft.leaveJobTitle;
+    const posterId = s.draft.leavePosterId;
+    clearSession(userId);
+    // Save leave request
+    await db.collection('leaveRequests').doc(String(jobId)).set({
+      jobId: String(jobId),
+      jobTitle,
+      workerId: userId,
+      workerName: user.name,
+      posterId,
+      reason,
+      requestedAt: Date.now(),
+    });
+    // Notify poster
+    await showState(posterId, posterId,
+      `🚪 *Leave Request*\n\n*${user.name}* wants to leave *${jobTitle}*\n\nReason: _${reason}_\n\nDo you approve?`,
+      { reply_markup: { inline_keyboard: [
+        [{ text: '✅ Approve', callback_data: `approve_leave_${jobId}_${userId}` }],
+        [{ text: '❌ Decline', callback_data: `decline_leave_${jobId}_${userId}` }],
+      ]}}
+    ).catch(() => {});
+    updateUserPin(posterId).catch(() => {});
+    showMenu(chatId, userId, '✅ Leave request sent. Waiting for customer to respond.');
     return;
   }
 
@@ -2103,7 +2186,6 @@ async function submitCompletionReview(chatId, fromUserId, jobId, toUserId, stars
 
 async function updateUserPin(userId, force = false) {
   try {
-    console.log(`[updateUserPin] userId=${userId} force=${force}`);
     const workerSnap = await db.collection('applications')
       .where('workerId', '==', userId)
       .where('status', '==', 'accepted')
