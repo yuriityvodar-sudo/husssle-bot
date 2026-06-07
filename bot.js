@@ -437,8 +437,7 @@ bot.on('callback_query', async (query) => {
   await bot.answerCallbackQuery(query.id).catch(() => {});
 
   // Always clear buttons from the tapped message, except noop
-  // Don't clear buttons on noop or live_now (pin button should stay)
-  if (data !== 'noop' && data !== 'live_now') {
+  if (data !== 'noop') {
     bot.editMessageReplyMarkup({ inline_keyboard: [] }, { chat_id: chatId, message_id: msgId }).catch(() => {});
   }
 
@@ -1210,12 +1209,28 @@ Keep hustling! 💪`,
     return;
   }
 
+  if (data === 'pin_live_now') {
+    // Same as live_now but don't clear pin button — handle via live_now logic
+    // Re-add button to pin message after handling
+    const userDoc2 = await db.collection('users').doc(String(userId)).get();
+    const pinnedMsgId = userDoc2.exists ? userDoc2.data().pinnedMsgId : null;
+    if (pinnedMsgId && msgId === pinnedMsgId) {
+      // Tapped from pin — restore button after clearing
+      setTimeout(() => {
+        bot.editMessageReplyMarkup(
+          { inline_keyboard: [[{ text: "🟢 What's live", callback_data: 'pin_live_now' }]] },
+          { chat_id: chatId, message_id: pinnedMsgId }
+        ).catch(() => {});
+      }, 500);
+    }
+  }
+
   if (data === 'menu_back') {
     showMenu(chatId, userId);
     return;
   }
 
-  if (data === 'live_now') {
+  if (data === 'live_now' || data === 'pin_live_now') {
     // Fetch all relevant data
     const workerApps = await getUserApplications(userId);
     const working = workerApps.filter(a => a.status === 'accepted');
@@ -2122,7 +2137,7 @@ async function updateUserPin(userId) {
 
     const pinMsg = await bot.sendMessage(userId,
       pinText.trim(),
-      { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: "🟢 What's live", callback_data: 'live_now' }]] }}
+      { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: "🟢 What's live", callback_data: 'pin_live_now' }]] }}
     );
     await bot.pinChatMessage(userId, pinMsg.message_id, { disable_notification: true }).catch(() => {});
     await db.collection('users').doc(String(userId)).update({ pinnedMsgId: pinMsg.message_id });
