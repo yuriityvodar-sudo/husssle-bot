@@ -337,7 +337,9 @@ bot.onText(/\/rules/, async (msg) => {
 
     `1️⃣5️⃣ *Declining completion* — If you decline a worker's completion request 3 or more times on the same job, admin is automatically notified to review the situation.` +
 
-    `1️⃣6️⃣ *Declining leave* — If you decline a worker's leave request 3 times on the same job, they are automatically released and the job goes back to open.`;
+    `1️⃣6️⃣ *Declining leave* — If you decline a worker's leave request 3 times on the same job, they are automatically released and the job goes back to open.` +
+
+    `1️⃣7️⃣ *Reports & bans* — Reports are reviewed manually by admin. There is currently no automatic ban threshold.`;
   await showState(msg.chat.id, msg.from.id, rulesText, {
     reply_markup: { inline_keyboard: [[{ text: '← Menu', callback_data: 'menu_back' }]] }
   });
@@ -1400,7 +1402,9 @@ Keep hustling! 💪`,
 
     `1️⃣5️⃣ *Declining completion* — If you decline a worker's completion request 3 or more times on the same job, admin is automatically notified to review the situation.` +
 
-    `1️⃣6️⃣ *Declining leave* — If you decline a worker's leave request 3 times on the same job, they are automatically released and the job goes back to open.`;
+    `1️⃣6️⃣ *Declining leave* — If you decline a worker's leave request 3 times on the same job, they are automatically released and the job goes back to open.` +
+
+    `1️⃣7️⃣ *Reports & bans* — Reports are reviewed manually by admin. There is currently no automatic ban threshold.`;
     await showState(chatId, userId, rulesText, {
       reply_markup: { inline_keyboard: [[{ text: '← Back', callback_data: 'menu_back' }]] }
     });
