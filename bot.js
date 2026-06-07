@@ -315,6 +315,7 @@ bot.onText(/\/start(?:\s(.+))?/, async (msg, match) => {
 
 bot.onText(/\/menu/, (msg) => {
   showMenu(msg.chat.id, msg.from.id);
+  updateUserPin(msg.from.id).catch(() => {});
 });
 
 bot.onText(/\/work/, async (msg) => {
@@ -1241,6 +1242,7 @@ Keep hustling! 💪`,
 
   if (data === 'menu_back') {
     showMenu(chatId, userId);
+    updateUserPin(userId).catch(() => {});
     return;
   }
 
