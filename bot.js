@@ -838,6 +838,7 @@ bot.on('callback_query', async (query) => {
       ]}}
     );
     s.draft[prevWorkerKey] = workerViewMsg.message_id;
+    await db.collection('users').doc(String(userId)).update({ stateMsgId: workerViewMsg.message_id }).catch(() => {});
     return;
   }
 
