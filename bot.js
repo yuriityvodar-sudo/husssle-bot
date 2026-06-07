@@ -180,8 +180,11 @@ function mainMenu() {
 async function showState(chatId, userId, text, options = {}) {
   const userDoc = await db.collection('users').doc(String(userId)).get();
   const stateMsgId = userDoc.exists ? userDoc.data().stateMsgId : null;
-  if (stateMsgId) {
-    await bot.deleteMessage(chatId, stateMsgId).catch(() => {});
+  const menuMsgId = userDoc.exists ? userDoc.data().menuMsgId : null;
+  if (stateMsgId) await bot.deleteMessage(chatId, stateMsgId).catch(() => {});
+  if (menuMsgId) {
+    await bot.deleteMessage(chatId, menuMsgId).catch(() => {});
+    await db.collection('users').doc(String(userId)).update({ menuMsgId: null }).catch(() => {});
   }
   let sent;
   if (options.photo) {
