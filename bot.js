@@ -173,7 +173,6 @@ function mainMenu() {
     inline_keyboard: [
       [{ text: '🔴 Husssle Live 🔴', callback_data: 'live_now' }, { text: '➕ Post a hustle', callback_data: 'post_start' }],
       [{ text: "🤲 Hustles I'm doing", callback_data: 'my_applications' }, { text: '💼 Hustles I posted', callback_data: 'my_jobs' }],
-      [{ text: '📋 Rules', callback_data: 'show_rules' }],
     ]
   };
 }
