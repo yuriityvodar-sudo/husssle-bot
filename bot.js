@@ -2158,17 +2158,15 @@ async function updateUserPin(userId) {
     else if (takenJobs.length) { pinnedJob = { title: takenJobs[0].title,     pay: takenJobs[0].pay };     pinnedCallback = `manage_job_${takenJobs[0].id}`; }
     else if (openJobs.length)  { pinnedJob = { title: openJobs[0].title,      pay: openJobs[0].pay };      pinnedCallback = `manage_job_${openJobs[0].id}`; }
 
-    if (userData.pinnedMsgId) {
-      await bot.unpinChatMessage(userId, { message_id: userData.pinnedMsgId }).catch(() => {});
-      await bot.deleteMessage(userId, userData.pinnedMsgId).catch(() => {});
-    }
-
     const total = workerJobs.length + takenJobs.length + openJobs.length;
     if (total === 0) {
       await bot.unpinAllChatMessages(userId).catch(() => {});
       await db.collection('users').doc(String(userId)).update({ pinnedMsgId: null });
       return;
     }
+
+    // If pin already exists, don't republish
+    if (userData.pinnedMsgId) return;
 
     // Build rich pin message text
     let pinText = '';
