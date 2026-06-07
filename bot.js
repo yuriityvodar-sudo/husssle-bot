@@ -2180,6 +2180,13 @@ async function updateUserPin(userId) {
       }
     }
 
+    // Clear old menu message when publishing pin
+    const menuMsgId = userData.menuMsgId;
+    if (menuMsgId) {
+      await bot.deleteMessage(userId, menuMsgId).catch(() => {});
+      await db.collection('users').doc(String(userId)).update({ menuMsgId: null }).catch(() => {});
+    }
+
     // Build rich pin message text
     let pinText = '';
 
