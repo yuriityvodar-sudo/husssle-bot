@@ -339,7 +339,9 @@ bot.onText(/\/rules/, async (msg) => {
 
     `1️⃣6️⃣ *Declining leave* — If you decline a worker's leave request 3 times on the same job, they are automatically released and the job goes back to open.` +
 
-    `1️⃣7️⃣ *Reports & bans* — Reports are reviewed manually by admin. There is currently no automatic ban threshold.`;
+    `1️⃣7️⃣ *Reports & bans* — Reports are reviewed manually by admin. There is currently no automatic ban threshold.` +
+
+    `1️⃣8️⃣ *Daily report limit* — You can send up to 10 reports per day across all jobs. After 10 you are blocked from reporting until the next day.`;
   await showState(msg.chat.id, msg.from.id, rulesText, {
     reply_markup: { inline_keyboard: [[{ text: '← Menu', callback_data: 'menu_back' }]] }
   });
@@ -1113,6 +1115,16 @@ bot.on('callback_query', async (query) => {
       bot.sendMessage(chatId, '⚠️ You have already reported this job.');
       return;
     }
+    // Rule 7: Max 10 reports per day
+    const todayStart = new Date(); todayStart.setHours(0,0,0,0);
+    const dailyReportsSnap = await db.collection('reports')
+      .where('userId', '==', userId)
+      .where('reportedAt', '>=', todayStart.getTime())
+      .get();
+    if (dailyReportsSnap.size >= 10) {
+      bot.sendMessage(chatId, '⚠️ You have reached the daily report limit of 10. Try again tomorrow.');
+      return;
+    }
     await db.collection('reports').doc(`${jobId}_${userId}`).set({ jobId, userId, reportedAt: Date.now() });
     const poster = await db.collection('users').doc(String(job.posterId)).get();
     const posterData = poster.exists ? poster.data() : { name: 'N/A', phone: 'N/A' };
@@ -1404,7 +1416,9 @@ Keep hustling! 💪`,
 
     `1️⃣6️⃣ *Declining leave* — If you decline a worker's leave request 3 times on the same job, they are automatically released and the job goes back to open.` +
 
-    `1️⃣7️⃣ *Reports & bans* — Reports are reviewed manually by admin. There is currently no automatic ban threshold.`;
+    `1️⃣7️⃣ *Reports & bans* — Reports are reviewed manually by admin. There is currently no automatic ban threshold.` +
+
+    `1️⃣8️⃣ *Daily report limit* — You can send up to 10 reports per day across all jobs. After 10 you are blocked from reporting until the next day.`;
     await showState(chatId, userId, rulesText, {
       reply_markup: { inline_keyboard: [[{ text: '← Back', callback_data: 'menu_back' }]] }
     });
