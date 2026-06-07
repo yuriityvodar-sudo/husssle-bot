@@ -173,6 +173,7 @@ function mainMenu() {
     inline_keyboard: [
       [{ text: '🔴 Husssle Live 🔴', callback_data: 'live_now' }, { text: '➕ Post a hustle', callback_data: 'post_start' }],
       [{ text: "🤲 Hustles I'm doing", callback_data: 'my_applications' }, { text: '💼 Hustles I posted', callback_data: 'my_jobs' }],
+      [{ text: '📋 Rules', callback_data: 'show_rules' }],
     ]
   };
 }
@@ -466,13 +467,31 @@ bot.on('callback_query', async (query) => {
     if (!job) { bot.sendMessage(chatId, '❌ Job not found.'); return; }
     if (job.posterId === userId) { bot.sendMessage(chatId, "⚠️ You can't apply to your own hustle."); return; }
     if (job.status !== 'open')  { bot.sendMessage(chatId, "⚠️ This hustle is no longer open."); return; }
+    // Rule 2: Max 20 pending applications at once
+    const allMyApps = await getUserApplications(userId);
+    const pendingApps = allMyApps.filter(a => a.status === 'pending');
+    if (pendingApps.length >= 20) {
+      bot.sendMessage(chatId, '⚠️ You can only apply to 20 jobs at a time. Withdraw an existing application before applying again.');
+      return;
+    }
+    // Rule 3: Max 1 job working on at once
+    const activeWork = allMyApps.filter(a => a.status === 'accepted');
+    if (activeWork.length >= 1) {
+      bot.sendMessage(chatId, '⚠️ You can only work on 1 job at a time. Complete or leave your current job before applying to another.');
+      return;
+    }
 
     const apps = await getJobApplications(jobId);
     const myApp = apps.find(a => a.workerId === userId);
     if (myApp) {
       if (myApp.status === 'rejected') {
-        // Allow one re-apply after rejection
-        await db.collection('applications').doc(myApp.docId || `${jobId}_${userId}`).update({ status: 'pending', appliedAt: Date.now() });
+        // Rule 7: Max 3 reapplications after rejection
+        const reapplyCount = myApp.reapplyCount || 0;
+        if (reapplyCount >= 3) {
+          bot.sendMessage(chatId, '⚠️ You have been rejected from this job 3 times. You cannot apply again.');
+          return;
+        }
+        await db.collection('applications').doc(myApp.docId || `${jobId}_${userId}`).update({ status: 'pending', appliedAt: Date.now(), reapplyCount: reapplyCount + 1 });
         bot.sendMessage(chatId, `✅ *Re-application sent!*\n\n${job.title}\nKES ${job.pay} · ${job.location}\n\nGood luck this time! 🤞`, { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '📬 My applications', callback_data: 'my_applications' }]] } });
         // Notify poster
         bot.sendMessage(job.posterId,
@@ -530,6 +549,12 @@ bot.on('callback_query', async (query) => {
   }
 
   if (data === 'post_start') {
+    // Rule 1: Max 20 jobs posted at once
+    const postedSnap = await db.collection('jobs').where('posterId', '==', userId).where('status', 'in', ['open', 'taken']).get();
+    if (postedSnap.size >= 20) {
+      bot.sendMessage(chatId, '⚠️ You can only post 20 jobs at a time. Close or delete an existing job before posting a new one.');
+      return;
+    }
     // Check pending feedback first
     const pendingFb = await hasPendingFeedback(userId);
     if (pendingFb) {
@@ -1000,6 +1025,13 @@ bot.on('callback_query', async (query) => {
     const jobId = data.replace('report_job_', '');
     const job = await getJob(jobId);
     if (!job) return;
+    // Rule 8: Max 1 report per job per user
+    const reportSnap = await db.collection('reports').doc(`${jobId}_${userId}`).get();
+    if (reportSnap.exists) {
+      bot.sendMessage(chatId, '⚠️ You have already reported this job.');
+      return;
+    }
+    await db.collection('reports').doc(`${jobId}_${userId}`).set({ jobId, userId, reportedAt: Date.now() });
     const poster = await db.collection('users').doc(String(job.posterId)).get();
     const posterData = poster.exists ? poster.data() : { name: 'N/A', phone: 'N/A' };
     bot.sendMessage(ADMIN_ID,
@@ -1264,6 +1296,27 @@ Keep hustling! 💪`,
   if (data === 'cancel') {
     clearSession(userId);
     showMenu(chatId, userId, '❌ Cancelled.');
+    return;
+  }
+
+  if (data === 'show_rules') {
+    const rulesText =
+      `📋 *Husssle Rules*\n\n` +
+      `*What you can and cannot do:*\n\n` +
+      `1️⃣ *Posting jobs* — You can post up to 20 jobs at a time. Close or delete an existing job before posting a new one.\n\n` +
+      `2️⃣ *Applying to jobs* — You can apply to up to 20 jobs at a time. Withdraw an application before applying to more.\n\n` +
+      `3️⃣ *Working on jobs* — You can only work on 1 job at a time. Complete or leave your current job before taking another.\n\n` +
+      `4️⃣ *Accepting workers* — Only 1 worker can be accepted per job. Once accepted, no one else can apply.\n\n` +
+      `5️⃣ *Completion requests* — You can only send 1 completion request at a time. Wait for the customer to respond before sending another.\n\n` +
+      `6️⃣ *Leave requests* — You can only send 1 leave request at a time. Wait for the customer to respond before sending another.\n\n` +
+      `7️⃣ *Reapplying* — You can reapply to the same job up to 3 times after being rejected. After the 3rd rejection you are permanently blocked from that job.\n\n` +
+      `8️⃣ *Reporting jobs* — You can only report the same job once.\n\n` +
+      `9️⃣ *Reviews* — You can only leave 1 review per job. It cannot be edited after submission.\n\n` +
+      `🔟 *Taken jobs* — No limit on how many jobs can be worked on for you at the same time.\n\n` +
+      `1️⃣1️⃣ *Applications per job* — No limit on how many people can apply to your job.`;
+    await showState(chatId, userId, rulesText, {
+      reply_markup: { inline_keyboard: [[{ text: '← Back', callback_data: 'menu_back' }]] }
+    });
     return;
   }
 
