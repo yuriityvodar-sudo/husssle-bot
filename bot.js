@@ -911,10 +911,18 @@ bot.on('callback_query', async (query) => {
     const parts = data.replace('decline_done_', '').split('_');
     const jobId = parts[0];
     const workerId = parseInt(parts[1]);
-    // Clear completion request
-    await db.collection('completionRequests').doc(String(jobId)).delete().catch(() => {});
-    bot.sendMessage(workerId, `ℹ️ The customer says the job isn't done yet. Keep going! 💪`).catch(() => {});
-    bot.sendMessage(chatId, '✅ Worker has been notified.', { reply_markup: { inline_keyboard: [[{ text: '← Back', callback_data: `manage_job_${jobId}` }]] } });
+    const job = await getJob(jobId);
+    if (!job) return;
+    // Ask poster for a reason
+    const s = getSession(userId);
+    s.step = 'decline_reason';
+    s.draft.declineJobId = jobId;
+    s.draft.declineWorkerId = workerId;
+    s.draft.declineJobTitle = job.title;
+    await showState(chatId, userId,
+      `❌ *Not done yet?*\n\nTell the worker why. Type your reason below:`,
+      {}
+    );
     return;
   }
 
@@ -1462,6 +1470,29 @@ bot.on('message', async (msg) => {
     } else {
       startPostFlow(chatId, userId);
     }
+    return;
+  }
+
+  if (s.step === 'decline_reason') {
+    const reason = text && text.trim();
+    if (!reason || reason.length < 3) {
+      bot.sendMessage(chatId, '⚠️ Please type a reason (at least 3 characters):');
+      return;
+    }
+    const jobId = s.draft.declineJobId;
+    const workerId = s.draft.declineWorkerId;
+    const jobTitle = s.draft.declineJobTitle;
+    clearSession(userId);
+    // Clear completion request
+    await db.collection('completionRequests').doc(String(jobId)).delete().catch(() => {});
+    // Notify worker with reason and manage button
+    await showState(workerId, workerId,
+      `❌ *Not done yet*\n\n*${jobTitle}*\n\nYour customer says:\n_${reason}_\n\nKeep going! 💪`,
+      { reply_markup: { inline_keyboard: [
+        [{ text: '🔧 Manage this job', callback_data: `worker_job_${jobId}` }],
+      ]}}
+    ).catch(() => {});
+    showMenu(chatId, userId, '✅ Worker has been notified with your feedback.');
     return;
   }
 
