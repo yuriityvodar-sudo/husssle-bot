@@ -199,10 +199,10 @@ async function showState(chatId, userId, text, options = {}) {
 async function showMenu(chatId, userId, text = 'What do you want to do?') {
   const userDoc = await db.collection('users').doc(String(userId)).get();
   const menuMsgId = userDoc.exists ? userDoc.data().menuMsgId : null;
-  // Delete old menu message first
-  if (menuMsgId) {
-    await bot.deleteMessage(chatId, menuMsgId).catch(() => {});
-  }
+  const stateMsgId = userDoc.exists ? userDoc.data().stateMsgId : null;
+  // Delete old menu and state messages
+  if (menuMsgId) await bot.deleteMessage(chatId, menuMsgId).catch(() => {});
+  if (stateMsgId) await bot.deleteMessage(chatId, stateMsgId).catch(() => {});
   const sent = await bot.sendMessage(chatId, text, { parse_mode: 'Markdown', reply_markup: mainMenu() });
   await db.collection('users').doc(String(userId)).update({ menuMsgId: sent.message_id }).catch(() => {});
 }
