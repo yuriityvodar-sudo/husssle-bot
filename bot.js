@@ -1216,6 +1216,14 @@ Keep hustling! 💪`,
     return;
   }
 
+  if (data === 'pin_live_now') {
+    // Re-add button to pin message explicitly after tap
+    bot.editMessageReplyMarkup(
+      { inline_keyboard: [[{ text: "🟢 What's live", callback_data: 'pin_live_now' }]] },
+      { chat_id: chatId, message_id: msgId }
+    ).catch(() => {});
+  }
+
   if (data === 'live_now' || data === 'pin_live_now') {
     // Fetch all relevant data
     const workerApps = await getUserApplications(userId);
