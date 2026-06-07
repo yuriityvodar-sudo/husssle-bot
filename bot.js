@@ -317,6 +317,26 @@ bot.onText(/\/start(?:\s(.+))?/, async (msg, match) => {
   );
 });
 
+bot.onText(/\/rules/, async (msg) => {
+  const rulesText =
+    `📋 *Husssle Rules*\n\n` +
+    `*What you can and cannot do:*\n\n` +
+    `1️⃣ *Posting jobs* — You can post up to 20 jobs at a time. Close or delete an existing job before posting a new one.\n\n` +
+    `2️⃣ *Applying to jobs* — You can apply to up to 20 jobs at a time. Withdraw an application before applying to more.\n\n` +
+    `3️⃣ *Working on jobs* — You can only work on 1 job at a time. Complete or leave your current job before taking another.\n\n` +
+    `4️⃣ *Accepting workers* — Only 1 worker can be accepted per job. Once accepted, no one else can apply.\n\n` +
+    `5️⃣ *Completion requests* — You can only send 1 completion request at a time. Wait for the customer to respond before sending another.\n\n` +
+    `6️⃣ *Leave requests* — You can only send 1 leave request at a time. Wait for the customer to respond before sending another.\n\n` +
+    `7️⃣ *Reapplying* — You can reapply to the same job up to 3 times after being rejected. After the 3rd rejection you are permanently blocked from that job.\n\n` +
+    `8️⃣ *Reporting jobs* — You can only report the same job once.\n\n` +
+    `9️⃣ *Reviews* — You can only leave 1 review per job. It cannot be edited after submission.\n\n` +
+    `🔟 *Taken jobs* — No limit on how many jobs can be worked on for you at the same time.\n\n` +
+    `1️⃣1️⃣ *Applications per job* — No limit on how many people can apply to your job.`;
+  await showState(msg.chat.id, msg.from.id, rulesText, {
+    reply_markup: { inline_keyboard: [[{ text: '← Menu', callback_data: 'menu_back' }]] }
+  });
+});
+
 bot.onText(/\/menu/, (msg) => {
   showMenu(msg.chat.id, msg.from.id);
   updateUserPin(msg.from.id).catch(() => {});
@@ -2500,9 +2520,10 @@ console.log('🤖 Husssle bot is running with Firestore...');
 
 // Set commands for regular users
 bot.setMyCommands([
-  { command: 'menu', description: 'Main menu' },
-  { command: 'work', description: 'My active hustles' },
-  { command: 'post', description: 'Post a new hustle' },
+  { command: 'menu',  description: 'Main menu' },
+  { command: 'work',  description: 'My active hustles' },
+  { command: 'post',  description: 'Post a new hustle' },
+  { command: 'rules', description: 'View the rules' },
 ]).then(() => console.log('✅ Commands set!')).catch(console.error);
 
 // Set extra commands for admin only
@@ -2510,6 +2531,7 @@ bot.setMyCommands([
   { command: 'menu',   description: 'Main menu' },
   { command: 'work',   description: 'My active hustles' },
   { command: 'post',   description: 'Post a new hustle' },
+  { command: 'rules',  description: 'View the rules' },
   { command: 'banned', description: 'View banned users' },
   { command: 'admin',  description: 'All jobs (admin)' },
 ], { scope: { type: 'chat', chat_id: 889114803 } }).then(() => console.log('✅ Admin commands set!')).catch(console.error);
