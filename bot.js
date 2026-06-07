@@ -881,6 +881,12 @@ bot.on('callback_query', async (query) => {
     const jobId = data.replace('request_done_', '');
     const job = await getJob(jobId);
     if (!job) return;
+    // Check if completion request already exists
+    const existingReq = await db.collection('completionRequests').doc(String(jobId)).get();
+    if (existingReq.exists) {
+      bot.sendMessage(chatId, '⏳ You already sent a completion request. Waiting for the customer to confirm.');
+      return;
+    }
     // Save completion request to Firestore
     await db.collection('completionRequests').doc(String(jobId)).set({
       jobId: String(jobId),
