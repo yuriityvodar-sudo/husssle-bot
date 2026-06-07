@@ -1210,19 +1210,13 @@ Keep hustling! 💪`,
   }
 
   if (data === 'pin_live_now') {
-    // Same as live_now but don't clear pin button — handle via live_now logic
-    // Re-add button to pin message after handling
-    const userDoc2 = await db.collection('users').doc(String(userId)).get();
-    const pinnedMsgId = userDoc2.exists ? userDoc2.data().pinnedMsgId : null;
-    if (pinnedMsgId && msgId === pinnedMsgId) {
-      // Tapped from pin — restore button after clearing
-      setTimeout(() => {
-        bot.editMessageReplyMarkup(
-          { inline_keyboard: [[{ text: "🟢 What's live", callback_data: 'pin_live_now' }]] },
-          { chat_id: chatId, message_id: pinnedMsgId }
-        ).catch(() => {});
-      }, 500);
-    }
+    // Restore button on pin message after it gets cleared
+    setTimeout(() => {
+      bot.editMessageReplyMarkup(
+        { inline_keyboard: [[{ text: "🟢 What's live", callback_data: 'pin_live_now' }]] },
+        { chat_id: chatId, message_id: msgId }
+      ).catch(() => {});
+    }, 600);
   }
 
   if (data === 'menu_back') {
