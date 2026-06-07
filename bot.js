@@ -881,6 +881,15 @@ bot.on('callback_query', async (query) => {
     const jobId = data.replace('request_done_', '');
     const job = await getJob(jobId);
     if (!job) return;
+    // Save completion request to Firestore
+    await db.collection('completionRequests').doc(String(jobId)).set({
+      jobId: String(jobId),
+      jobTitle: job.title,
+      workerId: userId,
+      workerName: user.name,
+      posterId: job.posterId,
+      requestedAt: Date.now(),
+    });
     bot.sendMessage(job.posterId,
       `✅ *Completion Request*\n\n*${user.name}* says the job *${job.title}* is done.\n\nConfirm?`,
       { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [
@@ -896,6 +905,8 @@ bot.on('callback_query', async (query) => {
     const parts = data.replace('decline_done_', '').split('_');
     const jobId = parts[0];
     const workerId = parseInt(parts[1]);
+    // Clear completion request
+    await db.collection('completionRequests').doc(String(jobId)).delete().catch(() => {});
     bot.sendMessage(workerId, `ℹ️ The customer says the job isn't done yet. Keep going! 💪`).catch(() => {});
     bot.sendMessage(chatId, '✅ Worker has been notified.', { reply_markup: { inline_keyboard: [[{ text: '← Back', callback_data: `manage_job_${jobId}` }]] } });
     return;
@@ -1028,6 +1039,8 @@ Keep hustling! 💪`,
 
   if (data.startsWith('mark_done_')) {
     const jobId = data.replace('mark_done_', '');
+    // Clear completion request
+    await db.collection('completionRequests').doc(String(jobId)).delete().catch(() => {});
     const job   = await getJob(jobId);
     if (!job || String(job.posterId) !== String(userId)) return;
 
@@ -1243,6 +1256,14 @@ Keep hustling! 💪`,
       if (!appSnap.empty) urgentApplicants.push({ job, count: appSnap.size });
     }
 
+    // Urgent: completion requests pending my confirmation (as poster)
+    const completionSnap = await db.collection('completionRequests').where('posterId', '==', userId).get();
+    const pendingCompletions = completionSnap.docs.map(d => d.data());
+
+    // Info: my completion requests pending worker confirmation (as worker)
+    const myCompletionSnap = await db.collection('completionRequests').where('workerId', '==', userId).get();
+    const myPendingCompletions = myCompletionSnap.docs.map(d => d.data());
+
     const totalActive = working.length + hiring.length;
 
     if (totalActive === 0 && urgentApplicants.length === 0 && pendingApps.length === 0) {
@@ -1270,10 +1291,23 @@ Keep hustling! 💪`,
     let text = '🔴 *Husssle Live*\n\n';
 
     // URGENT section
-    if (urgentApplicants.length > 0) {
+    const hasUrgent = urgentApplicants.length > 0 || pendingCompletions.length > 0;
+    if (hasUrgent) {
       text += `⚠️ *Needs your attention*\n`;
       urgentApplicants.forEach(({ job, count }) => {
         text += `• ${count} applicant${count > 1 ? 's' : ''} waiting on *${job.title}*\n`;
+      });
+      pendingCompletions.forEach(req => {
+        text += `• *${req.jobTitle}* — ${req.workerName} says it's done\. Confirm?\n`;
+      });
+      text += '\n';
+    }
+
+    // Worker's pending completion requests
+    if (myPendingCompletions.length > 0) {
+      text += `⏳ *Awaiting confirmation*\n`;
+      myPendingCompletions.forEach(req => {
+        text += `• *${req.jobTitle}* — completion requested, waiting for customer\n`;
       });
       text += '\n';
     }
@@ -1311,6 +1345,13 @@ Keep hustling! 💪`,
 
     // Buttons
     const buttons = [];
+    // Add confirm buttons for pending completions
+    pendingCompletions.forEach(req => {
+      buttons.push([
+        { text: `✅ Confirm: ${req.jobTitle}`, callback_data: `mark_done_${req.jobId}` },
+        { text: '❌ Not yet', callback_data: `decline_done_${req.jobId}_${req.workerId}` },
+      ]);
+    });
     if (pinnedJob) {
       const manageCallback = isPinnedWorker ? `worker_job_${pinnedJob.jobId}` : `manage_job_${pinnedJob.id}`;
       buttons.push([{ text: '🔧 Manage pinned job', callback_data: manageCallback }]);
