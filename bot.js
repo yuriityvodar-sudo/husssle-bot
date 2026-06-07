@@ -2165,8 +2165,20 @@ async function updateUserPin(userId) {
       return;
     }
 
-    // If pin already exists, don't republish
-    if (userData.pinnedMsgId) return;
+    // If pin already exists in Telegram, don't republish
+    if (userData.pinnedMsgId) {
+      try {
+        const chat = await bot.getChat(userId);
+        const pinnedMsgId = userData.pinnedMsgId;
+        if (chat.pinned_message && chat.pinned_message.message_id === pinnedMsgId) {
+          return; // Pin is still there, skip
+        }
+        // Pin is gone — clear and republish
+        await db.collection('users').doc(String(userId)).update({ pinnedMsgId: null });
+      } catch(e) {
+        await db.collection('users').doc(String(userId)).update({ pinnedMsgId: null });
+      }
+    }
 
     // Build rich pin message text
     let pinText = '';
