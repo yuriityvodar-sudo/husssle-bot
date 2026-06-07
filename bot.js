@@ -333,15 +333,11 @@ bot.onText(/\/rules/, async (msg) => {
     `1️⃣1️⃣ *Applications per job* — No limit on how many people can apply to your job.\n\n` +
     `1️⃣2️⃣ *Job re-opens* — A job can be re-opened up to 5 times if a worker leaves or disappears. After the 5th re-open the job is automatically deleted.\n\n` +
     `1️⃣3️⃣ *Job closing* — Once the worker submits their review the job is closed immediately. The poster's review gate remains open until they submit their review.\n\n` +
-    `1️⃣4️⃣ *Cancelling jobs* — Cancelling a job that already has an accepted worker counts as a strike. After 3 strikes you receive a warning. After 6 strikes admin is notified.` +
-
-    `1️⃣5️⃣ *Declining completion* — If you decline a worker's completion request 3 or more times on the same job, admin is automatically notified to review the situation.` +
-
-    `1️⃣6️⃣ *Declining leave* — If you decline a worker's leave request 3 times on the same job, they are automatically released and the job goes back to open.` +
-
-    `1️⃣7️⃣ *Reports & bans* — Reports are reviewed manually by admin. There is currently no automatic ban threshold.` +
-
-    `1️⃣8️⃣ *Daily report limit* — You can send up to 10 reports per day across all jobs. After 10 you are blocked from reporting until the next day.` +
+    `1️⃣4️⃣ *Cancelling jobs* — Cancelling a job that already has an accepted worker counts as a strike. After 3 strikes you receive a warning. After 6 strikes admin is notified.\n\n` +
+    `1️⃣5️⃣ *Declining completion* — If you decline a worker's completion request 3 or more times on the same job, admin is automatically notified to review the situation.\n\n` +
+    `1️⃣6️⃣ *Declining leave* — If you decline a worker's leave request 3 times on the same job, they are automatically released and the job goes back to open.\n\n` +
+    `1️⃣7️⃣ *Reports & bans* — Reports are reviewed manually by admin. There is currently no automatic ban threshold.\n\n` +
+    `1️⃣8️⃣ *Daily report limit* — You can send up to 10 reports per day across all jobs. After 10 you are blocked from reporting until the next day.\n\n` +
     `1️⃣9️⃣ *Job expiry (open)* — Jobs that have been open for 30 days with no worker are automatically deleted. You will be notified and can re-post if needed.\n\n` +
     `2️⃣0️⃣ *Job expiry (taken)* — Jobs that have been in progress for 30 days are automatically closed. Both sides are notified to leave a review.`;
   await showState(msg.chat.id, msg.from.id, rulesText, {
@@ -1412,15 +1408,11 @@ Keep hustling! 💪`,
       `1️⃣1️⃣ *Applications per job* — No limit on how many people can apply to your job.\n\n` +
       `1️⃣2️⃣ *Job re-opens* — A job can be re-opened up to 5 times if a worker leaves or disappears. After the 5th re-open the job is automatically deleted.\n\n` +
     `1️⃣3️⃣ *Job closing* — Once the worker submits their review the job is closed immediately. The poster's review gate remains open until they submit their review.\n\n` +
-    `1️⃣4️⃣ *Cancelling jobs* — Cancelling a job that already has an accepted worker counts as a strike. After 3 strikes you receive a warning. After 6 strikes admin is notified.` +
-
-    `1️⃣5️⃣ *Declining completion* — If you decline a worker's completion request 3 or more times on the same job, admin is automatically notified to review the situation.` +
-
-    `1️⃣6️⃣ *Declining leave* — If you decline a worker's leave request 3 times on the same job, they are automatically released and the job goes back to open.` +
-
-    `1️⃣7️⃣ *Reports & bans* — Reports are reviewed manually by admin. There is currently no automatic ban threshold.` +
-
-    `1️⃣8️⃣ *Daily report limit* — You can send up to 10 reports per day across all jobs. After 10 you are blocked from reporting until the next day.` +
+    `1️⃣4️⃣ *Cancelling jobs* — Cancelling a job that already has an accepted worker counts as a strike. After 3 strikes you receive a warning. After 6 strikes admin is notified.\n\n` +
+    `1️⃣5️⃣ *Declining completion* — If you decline a worker's completion request 3 or more times on the same job, admin is automatically notified to review the situation.\n\n` +
+    `1️⃣6️⃣ *Declining leave* — If you decline a worker's leave request 3 times on the same job, they are automatically released and the job goes back to open.\n\n` +
+    `1️⃣7️⃣ *Reports & bans* — Reports are reviewed manually by admin. There is currently no automatic ban threshold.\n\n` +
+    `1️⃣8️⃣ *Daily report limit* — You can send up to 10 reports per day across all jobs. After 10 you are blocked from reporting until the next day.\n\n` +
     `1️⃣9️⃣ *Job expiry (open)* — Jobs that have been open for 30 days with no worker are automatically deleted. You will be notified and can re-post if needed.\n\n` +
     `2️⃣0️⃣ *Job expiry (taken)* — Jobs that have been in progress for 30 days are automatically closed. Both sides are notified to leave a review.`;
     await showState(chatId, userId, rulesText, {
