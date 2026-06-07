@@ -335,7 +335,9 @@ bot.onText(/\/rules/, async (msg) => {
     `1️⃣3️⃣ *Job closing* — Once the worker submits their review the job is closed immediately. The poster's review gate remains open until they submit their review.\n\n` +
     `1️⃣4️⃣ *Cancelling jobs* — Cancelling a job that already has an accepted worker counts as a strike. After 3 strikes you receive a warning. After 6 strikes admin is notified.` +
 
-    `1️⃣5️⃣ *Declining completion* — If you decline a worker's completion request 3 or more times on the same job, admin is automatically notified to review the situation.`;
+    `1️⃣5️⃣ *Declining completion* — If you decline a worker's completion request 3 or more times on the same job, admin is automatically notified to review the situation.` +
+
+    `1️⃣6️⃣ *Declining leave* — If you decline a worker's leave request 3 times on the same job, they are automatically released and the job goes back to open.`;
   await showState(msg.chat.id, msg.from.id, rulesText, {
     reply_markup: { inline_keyboard: [[{ text: '← Menu', callback_data: 'menu_back' }]] }
   });
@@ -1065,15 +1067,37 @@ bot.on('callback_query', async (query) => {
     const parts = data.replace('decline_leave_', '').split('_');
     const jobId = parts[0];
     const workerId = parseInt(parts[1]);
+    const job = await getJob(jobId);
+    if (!job) return;
     // Clear leave request
     await db.collection('leaveRequests').doc(String(jobId)).delete().catch(() => {});
-    await showState(workerId, workerId,
-      `❌ *Leave declined*\n\nThe customer wants you to stay on the job. Keep going! 💪`,
-      { reply_markup: { inline_keyboard: [
-        [{ text: '🔧 Manage this job', callback_data: `worker_job_${jobId}` }],
-      ]}}
-    ).catch(() => {});
-    showMenu(chatId, userId, '✅ Worker has been notified.');
+    // Track leave decline count
+    const leaveDeclineCount = (job.leaveDeclineCount || 0) + 1;
+    await db.collection('jobs').doc(String(jobId)).update({ leaveDeclineCount });
+
+    if (leaveDeclineCount >= 3) {
+      // Auto-release worker after 3 declines
+      const appSnap = await db.collection('applications').where('jobId', '==', String(jobId)).where('workerId', '==', workerId).get();
+      appSnap.docs.forEach(doc => doc.ref.update({ status: 'rejected' }));
+      const reopenCount = (job.reopenCount || 0) + 1;
+      await db.collection('jobs').doc(String(jobId)).update({ status: 'open', reopenCount, leaveDeclineCount: 0 });
+      await updateChannelPost({ ...job, status: 'open' });
+      await showState(workerId, workerId,
+        `✅ *You've been released*\n\nThe customer declined your leave request 3 times. You have been automatically released from *${job.title}*. The job is back to open.`,
+        {}
+      ).catch(() => {});
+      updateUserPin(workerId, true).catch(() => {});
+      updateUserPin(userId, true).catch(() => {});
+      showMenu(chatId, userId, `⚠️ You declined the worker's leave request 3 times. They have been automatically released from *${job.title}*.`);
+    } else {
+      await showState(workerId, workerId,
+        `❌ *Leave declined*\n\nThe customer wants you to stay on the job. Keep going! 💪\n\n_Note: After 3 declines you will be automatically released._`,
+        { reply_markup: { inline_keyboard: [
+          [{ text: '🔧 Manage this job', callback_data: `worker_job_${jobId}` }],
+        ]}}
+      ).catch(() => {});
+      showMenu(chatId, userId, `✅ Worker has been notified. _(Decline ${leaveDeclineCount}/3)_`);
+    }
     return;
   }
 
@@ -1374,7 +1398,9 @@ Keep hustling! 💪`,
     `1️⃣3️⃣ *Job closing* — Once the worker submits their review the job is closed immediately. The poster's review gate remains open until they submit their review.\n\n` +
     `1️⃣4️⃣ *Cancelling jobs* — Cancelling a job that already has an accepted worker counts as a strike. After 3 strikes you receive a warning. After 6 strikes admin is notified.` +
 
-    `1️⃣5️⃣ *Declining completion* — If you decline a worker's completion request 3 or more times on the same job, admin is automatically notified to review the situation.`;
+    `1️⃣5️⃣ *Declining completion* — If you decline a worker's completion request 3 or more times on the same job, admin is automatically notified to review the situation.` +
+
+    `1️⃣6️⃣ *Declining leave* — If you decline a worker's leave request 3 times on the same job, they are automatically released and the job goes back to open.`;
     await showState(chatId, userId, rulesText, {
       reply_markup: { inline_keyboard: [[{ text: '← Back', callback_data: 'menu_back' }]] }
     });
