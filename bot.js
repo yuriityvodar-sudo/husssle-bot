@@ -332,7 +332,10 @@ bot.onText(/\/rules/, async (msg) => {
     `🔟 *Taken jobs* — No limit on how many jobs can be worked on for you at the same time.\n\n` +
     `1️⃣1️⃣ *Applications per job* — No limit on how many people can apply to your job.\n\n` +
     `1️⃣2️⃣ *Job re-opens* — A job can be re-opened up to 5 times if a worker leaves or disappears. After the 5th re-open the job is automatically deleted.\n\n` +
-    `1️⃣3️⃣ *Job closing* — Once the worker submits their review the job is closed immediately. The poster's review gate remains open until they submit their review.`;
+    `1️⃣3️⃣ *Job closing* — Once the worker submits their review the job is closed immediately. The poster's review gate remains open until they submit their review.\n\n` +
+    `1️⃣4️⃣ *Cancelling jobs* — Cancelling a job that already has an accepted worker counts as a strike. After 3 strikes you receive a warning. After 6 strikes admin is notified.` +
+
+    `1️⃣5️⃣ *Declining completion* — If you decline a worker's completion request 3 or more times on the same job, admin is automatically notified to review the situation.`;
   await showState(msg.chat.id, msg.from.id, rulesText, {
     reply_markup: { inline_keyboard: [[{ text: '← Menu', callback_data: 'menu_back' }]] }
   });
@@ -808,6 +811,21 @@ bot.on('callback_query', async (query) => {
         `⚠️ *Job Cancelled*\n\nThe job *${job.title}* (KES ${job.pay}) has been cancelled by the customer.\n\nSorry for the inconvenience. Keep hustling! 💪`,
         { parse_mode: 'Markdown' }
       ).catch(() => {});
+      // Track cancellations with accepted workers
+      const userRef = db.collection('users').doc(String(userId));
+      const cancelCount = (user.cancelCount || 0) + 1;
+      await userRef.update({ cancelCount });
+      if (cancelCount === 3) {
+        bot.sendMessage(userId,
+          `⚠️ *Warning*\n\nYou have cancelled 3 jobs that had accepted workers. This is harmful to workers who invested their time.\n\nPlease be more careful when accepting workers. Further cancellations will be reported to admin.`,
+          { parse_mode: 'Markdown' }
+        ).catch(() => {});
+      } else if (cancelCount >= 6 && cancelCount % 3 === 0) {
+        bot.sendMessage(ADMIN_ID,
+          `🚨 *Poster flagged*\n\nUser *${user.name}* (ID: ${userId}) has cancelled ${cancelCount} jobs with accepted workers.`,
+          { parse_mode: 'Markdown' }
+        ).catch(() => {});
+      }
     }
     await db.collection('jobs').doc(String(jobId)).update({ status: 'cancelled' });
     await updateChannelPost({ ...job, status: 'cancelled' });
@@ -1353,7 +1371,10 @@ Keep hustling! 💪`,
       `🔟 *Taken jobs* — No limit on how many jobs can be worked on for you at the same time.\n\n` +
       `1️⃣1️⃣ *Applications per job* — No limit on how many people can apply to your job.\n\n` +
       `1️⃣2️⃣ *Job re-opens* — A job can be re-opened up to 5 times if a worker leaves or disappears. After the 5th re-open the job is automatically deleted.\n\n` +
-    `1️⃣3️⃣ *Job closing* — Once the worker submits their review the job is closed immediately. The poster's review gate remains open until they submit their review.`;
+    `1️⃣3️⃣ *Job closing* — Once the worker submits their review the job is closed immediately. The poster's review gate remains open until they submit their review.\n\n` +
+    `1️⃣4️⃣ *Cancelling jobs* — Cancelling a job that already has an accepted worker counts as a strike. After 3 strikes you receive a warning. After 6 strikes admin is notified.` +
+
+    `1️⃣5️⃣ *Declining completion* — If you decline a worker's completion request 3 or more times on the same job, admin is automatically notified to review the situation.`;
     await showState(chatId, userId, rulesText, {
       reply_markup: { inline_keyboard: [[{ text: '← Back', callback_data: 'menu_back' }]] }
     });
@@ -1668,6 +1689,10 @@ bot.on('message', async (msg) => {
     clearSession(userId);
     // Clear completion request
     await db.collection('completionRequests').doc(String(jobId)).delete().catch(() => {});
+    // Track decline count on job
+    const jobDoc = await db.collection('jobs').doc(String(jobId)).get();
+    const declineCount = (jobDoc.exists ? (jobDoc.data().declineCount || 0) : 0) + 1;
+    await db.collection('jobs').doc(String(jobId)).update({ declineCount });
     // Notify worker with reason and manage button
     await showState(workerId, workerId,
       `❌ *Not done yet*\n\n*${jobTitle}*\n\nYour customer says:\n_${reason}_\n\nKeep going! 💪`,
@@ -1675,6 +1700,15 @@ bot.on('message', async (msg) => {
         [{ text: '🔧 Manage this job', callback_data: `worker_job_${jobId}` }],
       ]}}
     ).catch(() => {});
+    // After 3rd decline — notify admin
+    if (declineCount >= 3) {
+      const workerDoc = await db.collection('users').doc(String(workerId)).get();
+      const workerName = workerDoc.exists ? workerDoc.data().name : 'Worker';
+      bot.sendMessage(ADMIN_ID,
+        `🚨 *Dispute Alert*\n\nJob: *${jobTitle}*\nPoster: *${user.name}* (ID: ${userId})\nWorker: *${workerName}* (ID: ${workerId})\n\nThe poster has declined completion ${declineCount} times.\nReason this time: _${reason}_\n\nPlease review this situation.`,
+        { parse_mode: 'Markdown' }
+      ).catch(() => {});
+    }
     showMenu(chatId, userId, '✅ Worker has been notified with your feedback.');
     return;
   }
