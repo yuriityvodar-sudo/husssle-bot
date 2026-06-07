@@ -308,7 +308,7 @@ bot.onText(/\/start(?:\s(.+))?/, async (msg, match) => {
   }
 
   // Restore pin if missing
-  updateUserPin(msg.from.id).catch(() => {});
+  updateUserPin(msg.from.id, true).catch(() => {});
 
   bot.sendMessage(msg.chat.id,
     '👋 *Karibu Husssle!*\n\nThe hustle marketplace for Nairobi.\nFind work or get work done. Simple.\n\n🤖 *This bot is your personal hustle manager:*\n• Post a job → workers apply → you pick the best one\n• Looking for work → browse & apply in seconds\n• Everything happens here — no calls, no WhatsApp groups\n• Get rated after every job to build your reputation\n\nWhat do you want to do?',
@@ -2101,8 +2101,9 @@ async function submitCompletionReview(chatId, fromUserId, jobId, toUserId, stars
   }
 }
 
-async function updateUserPin(userId) {
+async function updateUserPin(userId, force = false) {
   try {
+    console.log(`[updateUserPin] userId=${userId} force=${force}`);
     const workerSnap = await db.collection('applications')
       .where('workerId', '==', userId)
       .where('status', '==', 'accepted')
@@ -2169,8 +2170,8 @@ async function updateUserPin(userId) {
       return;
     }
 
-    // If pin already exists in Telegram, don't republish
-    if (userData.pinnedMsgId) {
+    // If pin already exists in Telegram and not forced, don't republish
+    if (!force && userData.pinnedMsgId) {
       try {
         const chat = await bot.getChat(userId);
         const pinnedMsgId = userData.pinnedMsgId;
@@ -2182,6 +2183,10 @@ async function updateUserPin(userId) {
       } catch(e) {
         await db.collection('users').doc(String(userId)).update({ pinnedMsgId: null });
       }
+    } else if (force && userData.pinnedMsgId) {
+      // Force republish — delete old pin first
+      await bot.unpinChatMessage(userId, { message_id: userData.pinnedMsgId }).catch(() => {});
+      await bot.deleteMessage(userId, userData.pinnedMsgId).catch(() => {});
     }
 
     // Clear old menu message when publishing pin
