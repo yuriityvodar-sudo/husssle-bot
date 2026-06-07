@@ -341,7 +341,9 @@ bot.onText(/\/rules/, async (msg) => {
 
     `1️⃣7️⃣ *Reports & bans* — Reports are reviewed manually by admin. There is currently no automatic ban threshold.` +
 
-    `1️⃣8️⃣ *Daily report limit* — You can send up to 10 reports per day across all jobs. After 10 you are blocked from reporting until the next day.`;
+    `1️⃣8️⃣ *Daily report limit* — You can send up to 10 reports per day across all jobs. After 10 you are blocked from reporting until the next day.` +
+    `1️⃣9️⃣ *Job expiry (open)* — Jobs that have been open for 30 days with no worker are automatically deleted. You will be notified and can re-post if needed.\n\n` +
+    `2️⃣0️⃣ *Job expiry (taken)* — Jobs that have been in progress for 30 days are automatically closed. Both sides are notified to leave a review.`;
   await showState(msg.chat.id, msg.from.id, rulesText, {
     reply_markup: { inline_keyboard: [[{ text: '← Menu', callback_data: 'menu_back' }]] }
   });
@@ -1418,7 +1420,9 @@ Keep hustling! 💪`,
 
     `1️⃣7️⃣ *Reports & bans* — Reports are reviewed manually by admin. There is currently no automatic ban threshold.` +
 
-    `1️⃣8️⃣ *Daily report limit* — You can send up to 10 reports per day across all jobs. After 10 you are blocked from reporting until the next day.`;
+    `1️⃣8️⃣ *Daily report limit* — You can send up to 10 reports per day across all jobs. After 10 you are blocked from reporting until the next day.` +
+    `1️⃣9️⃣ *Job expiry (open)* — Jobs that have been open for 30 days with no worker are automatically deleted. You will be notified and can re-post if needed.\n\n` +
+    `2️⃣0️⃣ *Job expiry (taken)* — Jobs that have been in progress for 30 days are automatically closed. Both sides are notified to leave a review.`;
     await showState(chatId, userId, rulesText, {
       reply_markup: { inline_keyboard: [[{ text: '← Back', callback_data: 'menu_back' }]] }
     });
@@ -2586,30 +2590,83 @@ async function updateDoneChannelPost(job, acceptedApp) {
 // ─── Cleanup expired done jobs ─────────────────────────────────────────────────
 async function cleanupExpiredJobs() {
   try {
-    const now  = Date.now();
-    const snap = await db.collection('jobs')
+    const now = Date.now();
+    const thirtyDaysAgo = now - (30 * 24 * 60 * 60 * 1000);
+
+    // 1. Clean up done jobs with deleteAt
+    const doneSnap = await db.collection('jobs')
       .where('status', '==', 'done')
       .where('deleteAt', '<=', now)
       .get();
 
-    if (snap.empty) return;
-    console.log(`🧹 Cleaning up ${snap.size} expired job(s)...`);
-
-    for (const doc of snap.docs) {
-      const job = doc.data();
-      // Delete channel message
-      if (job.channelMsgId) {
-        await bot.deleteMessage(CHANNEL_ID, job.channelMsgId).catch(() => {});
+    if (!doneSnap.empty) {
+      console.log(`🧹 Cleaning up ${doneSnap.size} expired done job(s)...`);
+      for (const doc of doneSnap.docs) {
+        const job = doc.data();
+        if (job.channelMsgId) await bot.deleteMessage(CHANNEL_ID, job.channelMsgId).catch(() => {});
+        const appsSnap = await db.collection('applications').where('jobId', '==', String(job.id)).get();
+        for (const appDoc of appsSnap.docs) await appDoc.ref.delete().catch(() => {});
+        await doc.ref.delete();
+        console.log(`✅ Deleted expired done job: ${job.title}`);
       }
-      // Delete all applications
-      const appsSnap = await db.collection('applications').where('jobId', '==', String(job.id)).get();
-      for (const appDoc of appsSnap.docs) {
-        await appDoc.ref.delete().catch(() => {});
-      }
-      // Delete job
-      await doc.ref.delete();
-      console.log(`✅ Deleted expired job: ${job.title}`);
     }
+
+    // 2. Auto-expire open jobs older than 30 days
+    const openSnap = await db.collection('jobs')
+      .where('status', '==', 'open')
+      .where('createdAt', '<=', thirtyDaysAgo)
+      .get();
+
+    if (!openSnap.empty) {
+      console.log(`🧹 Auto-expiring ${openSnap.size} open job(s) older than 30 days...`);
+      for (const doc of openSnap.docs) {
+        const job = doc.data();
+        if (job.channelMsgId) await bot.deleteMessage(CHANNEL_ID, job.channelMsgId).catch(() => {});
+        const appsSnap = await db.collection('applications').where('jobId', '==', String(job.id)).get();
+        for (const appDoc of appsSnap.docs) await appDoc.ref.delete().catch(() => {});
+        await doc.ref.delete();
+        // Notify poster
+        bot.sendMessage(job.posterId,
+          `⏰ *Job Expired*\n\nYour job *${job.title}* (KES ${job.pay}) has been automatically removed after 30 days with no worker found.\n\nFeel free to post it again if you still need help!`,
+          { parse_mode: 'Markdown' }
+        ).catch(() => {});
+        console.log(`✅ Auto-expired open job: ${job.title}`);
+      }
+    }
+
+    // 3. Auto-expire taken jobs older than 30 days
+    const takenSnap = await db.collection('jobs')
+      .where('status', '==', 'taken')
+      .where('createdAt', '<=', thirtyDaysAgo)
+      .get();
+
+    if (!takenSnap.empty) {
+      console.log(`🧹 Auto-expiring ${takenSnap.size} taken job(s) older than 30 days...`);
+      for (const doc of takenSnap.docs) {
+        const job = doc.data();
+        const appsSnap = await db.collection('applications').where('jobId', '==', String(job.id)).get();
+        const acceptedApp = appsSnap.docs.map(d => d.data()).find(a => a.status === 'accepted');
+        // Update job status to done
+        const deleteAt = Date.now() + 24 * 60 * 60 * 1000;
+        await doc.ref.update({ status: 'done', deleteAt });
+        if (job.channelMsgId) await bot.deleteMessage(CHANNEL_ID, job.channelMsgId).catch(() => {});
+        // Notify both sides
+        bot.sendMessage(job.posterId,
+          `⏰ *Job Auto-Closed*\n\nYour job *${job.title}* has been automatically closed after 30 days. Please leave a review if you haven't already.`,
+          { parse_mode: 'Markdown' }
+        ).catch(() => {});
+        if (acceptedApp) {
+          bot.sendMessage(acceptedApp.workerId,
+            `⏰ *Job Auto-Closed*\n\n*${job.title}* has been automatically closed after 30 days. Please leave a review if you haven't already.`,
+            { parse_mode: 'Markdown' }
+          ).catch(() => {});
+          updateUserPin(acceptedApp.workerId, true).catch(() => {});
+        }
+        updateUserPin(job.posterId, true).catch(() => {});
+        console.log(`✅ Auto-expired taken job: ${job.title}`);
+      }
+    }
+
   } catch (e) {
     console.error('cleanupExpiredJobs error:', e.stack || e.message);
   }
