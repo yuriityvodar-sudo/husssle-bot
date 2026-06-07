@@ -437,7 +437,7 @@ bot.on('callback_query', async (query) => {
   await bot.answerCallbackQuery(query.id).catch(() => {});
 
   // Always clear buttons from the tapped message, except noop
-  if (data !== 'noop') {
+  if (data !== 'noop' && data !== 'pin_live_now') {
     bot.editMessageReplyMarkup({ inline_keyboard: [] }, { chat_id: chatId, message_id: msgId }).catch(() => {});
   }
 
@@ -1209,15 +1209,7 @@ Keep hustling! 💪`,
     return;
   }
 
-  if (data === 'pin_live_now') {
-    // Restore button on pin message after it gets cleared
-    setTimeout(() => {
-      bot.editMessageReplyMarkup(
-        { inline_keyboard: [[{ text: "🟢 What's live", callback_data: 'pin_live_now' }]] },
-        { chat_id: chatId, message_id: msgId }
-      ).catch(() => {});
-    }, 600);
-  }
+
 
   if (data === 'menu_back') {
     showMenu(chatId, userId);
