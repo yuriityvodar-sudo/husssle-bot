@@ -330,7 +330,9 @@ bot.onText(/\/rules/, async (msg) => {
     `8️⃣ *Reporting jobs* — You can only report the same job once.\n\n` +
     `9️⃣ *Reviews* — You can only leave 1 review per job. It cannot be edited after submission.\n\n` +
     `🔟 *Taken jobs* — No limit on how many jobs can be worked on for you at the same time.\n\n` +
-    `1️⃣1️⃣ *Applications per job* — No limit on how many people can apply to your job.`;
+    `1️⃣1️⃣ *Applications per job* — No limit on how many people can apply to your job.\n\n` +
+    `1️⃣2️⃣ *Job re-opens* — A job can be re-opened up to 5 times if a worker leaves or disappears. After the 5th re-open the job is automatically deleted.\n\n` +
+    `1️⃣3️⃣ *Job closing* — Once the worker submits their review the job is closed immediately. The poster's review gate remains open until they submit their review.`;
   await showState(msg.chat.id, msg.from.id, rulesText, {
     reply_markup: { inline_keyboard: [[{ text: '← Menu', callback_data: 'menu_back' }]] }
   });
@@ -778,10 +780,18 @@ bot.on('callback_query', async (query) => {
         { parse_mode: 'Markdown' }
       ).catch(() => {});
     }
-    await db.collection('jobs').doc(String(jobId)).update({ status: 'open' });
+    const reopenCount = (job.reopenCount || 0) + 1;
+    if (reopenCount > 5) {
+      // Auto-delete after 5th re-open
+      await db.collection('jobs').doc(String(jobId)).delete();
+      bot.sendMessage(chatId, `❌ *${job.title}* has been re-opened too many times and has been automatically deleted. Please post a new job if you still need help.`, { parse_mode: 'Markdown' });
+      updateUserPin(userId, true).catch(() => {});
+      return;
+    }
+    await db.collection('jobs').doc(String(jobId)).update({ status: 'open', reopenCount });
     await updateChannelPost({ ...job, status: 'open' });
     updateUserPin(userId).catch(() => {});
-    bot.sendMessage(chatId, "🔄 Job re-opened! It's back to Open status.", { reply_markup: { inline_keyboard: [[{ text: '← My jobs', callback_data: 'my_jobs' }]] } });
+    bot.sendMessage(chatId, `🔄 Job re-opened! It's back to Open status. _(Re-open ${reopenCount}/5)_`, { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '← My jobs', callback_data: 'my_jobs' }]] } });
     return;
   }
 
@@ -1012,7 +1022,16 @@ bot.on('callback_query', async (query) => {
       .where('workerId', '==', workerId)
       .get();
     appSnap.docs.forEach(doc => doc.ref.update({ status: 'rejected' }));
-    await db.collection('jobs').doc(String(jobId)).update({ status: 'open' });
+    const reopenCount2 = (job.reopenCount || 0) + 1;
+    if (reopenCount2 > 5) {
+      await db.collection('jobs').doc(String(jobId)).delete();
+      await showState(workerId, workerId, `✅ You have been released from *${job.title}*. The job has been automatically deleted as it has been re-opened too many times.`, {}).catch(() => {});
+      showMenu(chatId, userId, `❌ *${job.title}* has been automatically deleted — re-opened too many times.`);
+      updateUserPin(userId, true).catch(() => {});
+      updateUserPin(workerId, true).catch(() => {});
+      return;
+    }
+    await db.collection('jobs').doc(String(jobId)).update({ status: 'open', reopenCount: reopenCount2 });
     await updateChannelPost({ ...job, status: 'open' });
     updateUserPin(userId, true).catch(() => {});
     updateUserPin(workerId, true).catch(() => {});
@@ -1332,7 +1351,9 @@ Keep hustling! 💪`,
       `8️⃣ *Reporting jobs* — You can only report the same job once.\n\n` +
       `9️⃣ *Reviews* — You can only leave 1 review per job. It cannot be edited after submission.\n\n` +
       `🔟 *Taken jobs* — No limit on how many jobs can be worked on for you at the same time.\n\n` +
-      `1️⃣1️⃣ *Applications per job* — No limit on how many people can apply to your job.`;
+      `1️⃣1️⃣ *Applications per job* — No limit on how many people can apply to your job.\n\n` +
+      `1️⃣2️⃣ *Job re-opens* — A job can be re-opened up to 5 times if a worker leaves or disappears. After the 5th re-open the job is automatically deleted.\n\n` +
+    `1️⃣3️⃣ *Job closing* — Once the worker submits their review the job is closed immediately. The poster's review gate remains open until they submit their review.`;
     await showState(chatId, userId, rulesText, {
       reply_markup: { inline_keyboard: [[{ text: '← Back', callback_data: 'menu_back' }]] }
     });
@@ -2221,10 +2242,11 @@ async function submitCompletionReview(chatId, fromUserId, jobId, toUserId, stars
 
     await showMenu(chatId, fromUserId, `✅ *Review submitted!* Thanks 🙏\n\n⭐ ${stars} star${stars > 1 ? 's' : ''} — _"${comment || ''}"_`);
 
-    // Check if both sides have reviewed
+    // Close job when worker reviews — don't wait for poster
     const updatedJob = await getJob(jobId);
-    if (updatedJob.posterReviewed && updatedJob.workerReviewed) {
-      // Now officially close the job
+    const shouldClose = role === 'worker' || (role === 'poster' && updatedJob.workerReviewed);
+
+    if (shouldClose && updatedJob.status !== 'done') {
       const deleteAt = Date.now() + 24 * 60 * 60 * 1000;
       await db.collection('jobs').doc(String(jobId)).update({ status: 'done', deleteAt });
       updatedJob.status = 'done';
@@ -2246,8 +2268,8 @@ async function submitCompletionReview(chatId, fromUserId, jobId, toUserId, stars
         });
       }
 
-      updateUserPin(job.posterId).catch(() => {});
-      if (acceptedApp) updateUserPin(acceptedApp.workerId).catch(() => {});
+      updateUserPin(job.posterId, true).catch(() => {});
+      if (acceptedApp) updateUserPin(acceptedApp.workerId, true).catch(() => {});
       updateDoneChannelPost(updatedJob, acceptedApp).catch(() => {});
     }
   } catch (e) {
