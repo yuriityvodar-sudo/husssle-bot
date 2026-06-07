@@ -1215,95 +1215,150 @@ Keep hustling! 💪`,
   }
 
   if (data === 'live_now') {
-    // Jobs I'm working on (accepted as worker)
+    // Fetch all relevant data
     const workerApps = await getUserApplications(userId);
     const working = workerApps.filter(a => a.status === 'accepted');
+    const pendingApps = workerApps.filter(a => a.status === 'pending');
 
-    // Jobs someone is working for me (taken as poster)
-    const takenSnap = await db.collection('jobs')
-      .where('posterId', '==', userId)
-      .where('status', '==', 'taken')
-      .get();
+    const takenSnap = await db.collection('jobs').where('posterId', '==', userId).where('status', '==', 'taken').get();
     const hiring = takenSnap.docs.map(d => d.data());
+
+    const openSnap = await db.collection('jobs').where('posterId', '==', userId).where('status', '==', 'open').get();
+    const openJobs = openSnap.docs.map(d => d.data());
+
+    // Urgent: applications to my open jobs that i havent responded to
+    const urgentApplicants = [];
+    for (const job of openJobs) {
+      const appSnap = await db.collection('applications').where('jobId', '==', String(job.id)).where('status', '==', 'pending').get();
+      if (!appSnap.empty) urgentApplicants.push({ job, count: appSnap.size });
+    }
 
     const totalActive = working.length + hiring.length;
 
-    if (totalActive === 0) {
-      // No active jobs — unpin if anything pinned
+    if (totalActive === 0 && urgentApplicants.length === 0 && pendingApps.length === 0) {
       const userDoc = await db.collection('users').doc(String(userId)).get();
       if (userDoc.exists && userDoc.data().pinnedMsgId) {
         await bot.unpinAllChatMessages(chatId).catch(() => {});
         await db.collection('users').doc(String(userId)).update({ pinnedMsgId: null });
       }
       await showState(chatId, userId,
-        `🔴 *Husssle Live*\n\n👀 Are you working or waiting? Check Live\n\nNothing active right now.\n\nPost a hustle or apply to one to get started!`,
+        `🔴 *Husssle Live*\n\nNothing active right now.\n\nPost a hustle or apply to one to get started!`,
         { reply_markup: { inline_keyboard: [
           [{ text: '➕ Post a hustle', callback_data: 'post_start' }],
-          [{ text: '← Menu', callback_data: 'menu_back' }],
         ]}}
       );
       return;
     }
 
-    // Check current pin
     const userDoc = await db.collection('users').doc(String(userId)).get();
     const userData = userDoc.exists ? userDoc.data() : {};
-    const pinnedMsgId = userData.pinnedMsgId;
-    const pinnedJobId = userData.pinnedJobId || null;
 
-    // Determine default pin — prefer worker job (job you're doing)
-    let defaultPinJobId = null;
-    let defaultPinText = null;
-    let defaultPinCallback = null;
-    if (working.length > 0) {
-      defaultPinJobId = working[0].jobId;
-      defaultPinText = `🔨 ${working[0].jobTitle} — KES ${working[0].jobPay}`;
-      defaultPinCallback = `worker_job_${working[0].jobId}`;
-    } else if (hiring.length > 0) {
-      defaultPinJobId = hiring[0].id;
-      defaultPinText = `👔 ${hiring[0].title} — KES ${hiring[0].pay}`;
-      defaultPinCallback = `manage_job_${hiring[0].id}`;
+    // Pinned job — top priority worker job
+    const pinnedJob = working.length > 0 ? working[0] : (hiring.length > 0 ? hiring[0] : null);
+    const isPinnedWorker = working.length > 0;
+
+    let text = '🔴 *Husssle Live*\n\n';
+
+    // URGENT section
+    if (urgentApplicants.length > 0) {
+      text += `⚠️ *Needs your attention*\n`;
+      urgentApplicants.forEach(({ job, count }) => {
+        text += `• ${count} applicant${count > 1 ? 's' : ''} waiting on *${job.title}*\n`;
+      });
+      text += '\n';
     }
 
-    let text = '🔴 *Husssle Live*\n\n👀 *Are you working or waiting? Check Live*\n\n';
+    // PINNED JOB section
+    if (pinnedJob) {
+      if (isPinnedWorker) {
+        text += `📌 *You're working on:*\n`;
+        text += `*${pinnedJob.jobTitle}* · KES ${pinnedJob.jobPay}\n`;
+        text += `_This is your pinned hustle_\n\n`;
+      } else {
+        text += `📌 *Working for you:*\n`;
+        text += `*${pinnedJob.title}* · KES ${pinnedJob.pay}\n`;
+        text += `_This is your pinned hustle_\n\n`;
+      }
+    }
+
+    // IN PROGRESS section
+    const otherWorking = working.slice(1);
+    const otherHiring = isPinnedWorker ? hiring : hiring.slice(1);
+
+    if (otherWorking.length > 0 || otherHiring.length > 0) {
+      text += `🟡 *Also in progress*\n`;
+      otherWorking.forEach(a => { text += `• 🔨 ${a.jobTitle} · KES ${a.jobPay}\n`; });
+      otherHiring.forEach(j => { text += `• 👀 ${j.title} · KES ${j.pay}\n`; });
+      text += '\n';
+    }
+
+    // WAITING section
+    if (pendingApps.length > 0 || openJobs.filter(j => !urgentApplicants.find(u => u.job.id === j.id)).length > 0) {
+      text += `⚪ *Waiting*\n`;
+      pendingApps.forEach(a => { text += `• Applied to *${a.jobTitle}* — waiting for response\n`; });
+      openJobs.filter(j => !urgentApplicants.find(u => u.job.id === j.id)).forEach(j => { text += `• *${j.title}* — open, no applicants yet\n`; });
+    }
+
+    // Buttons
+    const buttons = [];
+    if (pinnedJob) {
+      const manageCallback = isPinnedWorker ? `worker_job_${pinnedJob.jobId}` : `manage_job_${pinnedJob.id}`;
+      buttons.push([{ text: '🔧 Manage pinned job', callback_data: manageCallback }]);
+    }
+    if (totalActive > 1) {
+      buttons.push([{ text: '📌 Switch pin', callback_data: 'switch_pin' }]);
+    }
+    buttons.push([{ text: '📋 Manage husssle', callback_data: 'manage_husssle' }]);
+
+    await showState(chatId, userId, text, { reply_markup: { inline_keyboard: buttons } });
+    return;
+  }
+
+  if (data === 'switch_pin') {
+    const workerApps = await getUserApplications(userId);
+    const working = workerApps.filter(a => a.status === 'accepted');
+    const takenSnap = await db.collection('jobs').where('posterId', '==', userId).where('status', '==', 'taken').get();
+    const hiring = takenSnap.docs.map(d => d.data());
+
+    const buttons = [
+      ...working.map(a => [{ text: `🔨 ${a.jobTitle} — KES ${a.jobPay}`, callback_data: `pin_job_${a.jobId}_worker` }]),
+      ...hiring.map(j => [{ text: `👀 ${j.title} — KES ${j.pay}`, callback_data: `pin_job_${j.id}_poster` }]),
+    ];
+    await showState(chatId, userId, '📌 *Switch pin*\n\nChoose which job to pin:', { reply_markup: { inline_keyboard: buttons } });
+    return;
+  }
+
+  if (data === 'manage_husssle') {
+    const openSnap = await db.collection('jobs').where('posterId', '==', userId).where('status', '==', 'open').get();
+    const openJobs = openSnap.docs.map(d => d.data());
+    const workerApps = await getUserApplications(userId);
+    const pendingApps = workerApps.filter(a => a.status === 'pending');
+
+    let text = '📋 *Manage Husssle*\n\n';
     const buttons = [];
 
-    if (hiring.length) {
-      text += '👔 *Someone\'s working for you:*\n';
-      hiring.forEach(j => {
-        const isPinned = pinnedJobId === j.id;
-        text += `${isPinned ? '📌 ' : '• '}*${j.title}* · KES ${j.pay}\n`;
-        buttons.push([{ text: `👔 ${j.title} — KES ${j.pay}`, callback_data: `manage_job_${j.id}` }]);
+    if (openJobs.length > 0) {
+      text += '💼 *Your open jobs:*\n';
+      openJobs.forEach(j => {
+        text += `• *${j.title}* · KES ${j.pay}\n`;
+        buttons.push([{ text: `💼 ${j.title}`, callback_data: `manage_job_${j.id}` }]);
       });
       text += '\n';
     }
 
-    if (working.length) {
-      text += '🔨 *You\'re working on:*\n';
-      working.forEach(a => {
-        const isPinned = pinnedJobId === a.jobId;
-        text += `${isPinned ? '📌 ' : '• '}*${a.jobTitle}* · KES ${a.jobPay}\n`;
-        buttons.push([{ text: `🔨 ${a.jobTitle} — KES ${a.jobPay}`, callback_data: `worker_job_${a.jobId}` }]);
+    if (pendingApps.length > 0) {
+      text += '📝 *Your pending applications:*\n';
+      pendingApps.forEach(a => {
+        text += `• *${a.jobTitle}* — waiting\n`;
       });
       text += '\n';
     }
 
-    // If multiple active jobs, offer to change pin
-    if (totalActive > 1) {
-      text += `\n📌 *Pinned:* ${pinnedJobId ? (working.find(a => a.jobId === pinnedJobId)?.jobTitle || hiring.find(j => j.id === pinnedJobId)?.title || 'Unknown') : 'None'}\n`;
-      // Add pin switch buttons
-      const allJobs = [
-        ...working.map(a => ({ id: a.jobId, text: `📌 Pin: ${a.jobTitle}`, callback: `pin_job_${a.jobId}_worker` })),
-        ...hiring.map(j => ({ id: j.id, text: `📌 Pin: ${j.title}`, callback: `pin_job_${j.id}_poster` })),
-      ];
-      allJobs.forEach(j => {
-        if (j.id !== pinnedJobId) {
-          buttons.push([{ text: j.text, callback_data: j.callback }]);
-        }
-      });
+    if (openJobs.length === 0 && pendingApps.length === 0) {
+      text += 'Nothing to manage right now.';
     }
 
-    buttons.push([{ text: '← Menu', callback_data: 'menu_back' }]);
+    buttons.push([{ text: '← Back', callback_data: 'live_now' }]);
     await showState(chatId, userId, text, { reply_markup: { inline_keyboard: buttons } });
     return;
   }
