@@ -2245,7 +2245,7 @@ async function updateUserPin(userId, force = false) {
     else if (takenJobs.length) { pinnedJob = { title: takenJobs[0].title,     pay: takenJobs[0].pay };     pinnedCallback = `manage_job_${takenJobs[0].id}`; }
     else if (openJobs.length)  { pinnedJob = { title: openJobs[0].title,      pay: openJobs[0].pay };      pinnedCallback = `manage_job_${openJobs[0].id}`; }
 
-    const total = workerJobs.length + takenJobs.length + openJobs.length;
+    const total = workerJobs.length + takenJobs.length; // open jobs don't count as 'in motion'
     if (total === 0) {
       await bot.unpinAllChatMessages(userId).catch(() => {});
       await db.collection('users').doc(String(userId)).update({ pinnedMsgId: null });
