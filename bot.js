@@ -890,14 +890,14 @@ bot.on('callback_query', async (query) => {
       posterId: job.posterId,
       requestedAt: Date.now(),
     });
-    bot.sendMessage(job.posterId,
+    await showState(job.posterId, job.posterId,
       `✅ *Completion Request*\n\n*${user.name}* says the job *${job.title}* is done.\n\nConfirm?`,
-      { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [
+      { reply_markup: { inline_keyboard: [
         [{ text: '✅ Yes, mark as done!', callback_data: `mark_done_${jobId}` }],
         [{ text: '❌ Not yet', callback_data: `decline_done_${jobId}_${userId}` }],
       ]}}
     ).catch(() => {});
-    bot.sendMessage(chatId, '✅ Request sent to customer. Waiting for confirmation.');
+    showMenu(chatId, userId, '✅ Request sent to customer. Waiting for confirmation.');
     return;
   }
 
