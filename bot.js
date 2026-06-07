@@ -903,6 +903,7 @@ bot.on('callback_query', async (query) => {
         [{ text: '❌ Not yet', callback_data: `decline_done_${jobId}_${userId}` }],
       ]}}
     ).catch(() => {});
+    updateUserPin(job.posterId).catch(() => {});
     showMenu(chatId, userId, '✅ Request sent to customer. Waiting for confirmation.');
     return;
   }
