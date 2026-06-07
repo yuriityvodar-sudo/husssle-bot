@@ -2093,14 +2093,14 @@ async function updateUserPin(userId) {
     }
 
     if (workerJobs.length) {
-      pinText += `\n_${total} hustle${total > 1 ? 's' : ''} in motion right now_\n`;
+      pinText += `\n${total} hustle${total > 1 ? 's' : ''} in motion right now\n`;
       pinText += `\n🔨 *Active job*\n`;
       workerJobs.forEach(a => {
         pinText += `*${a.jobTitle}* · KES ${a.jobPay}\n`;
         if (a.jobLocation) pinText += `📍 ${a.jobLocation}\n`;
         if (a.posterName)  pinText += `👤 Customer: ${a.posterName}\n`;
         if (a.posterPhone) pinText += `📱 Reach them: ${a.posterPhone}\n`;
-        pinText += `_${a.posterName ? a.posterName : 'Your customer'} is counting on you\. Go\!_\n`;
+        pinText += `${a.posterName ? a.posterName : 'Your customer'} is counting on you. Go!\n`;
         pinText += `\n`;
       });
     }
@@ -2114,7 +2114,7 @@ async function updateUserPin(userId) {
         if (j.location)    pinText += `📍 ${j.location}\n`;
         if (workerName)    pinText += `👤 Worker: ${workerName}\n`;
         if (j.workerPhone) pinText += `📱 Reach them: ${j.workerPhone}\n`;
-        pinText += `_Let them work\. Stay patient\._\n`;
+        pinText += `Let them work. Stay patient.\n`;
         pinText += `\n`;
       });
     }
