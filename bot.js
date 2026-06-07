@@ -437,7 +437,8 @@ bot.on('callback_query', async (query) => {
   await bot.answerCallbackQuery(query.id).catch(() => {});
 
   // Always clear buttons from the tapped message, except noop
-  if (data !== 'noop') {
+  // Don't clear buttons on noop or live_now (pin button should stay)
+  if (data !== 'noop' && data !== 'live_now') {
     bot.editMessageReplyMarkup({ inline_keyboard: [] }, { chat_id: chatId, message_id: msgId }).catch(() => {});
   }
 
