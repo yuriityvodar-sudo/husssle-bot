@@ -171,7 +171,7 @@ function mainMenu() {
   return {
     inline_keyboard: [
       [{ text: '🔴 Husssle Live 🔴', callback_data: 'live_now' }, { text: '➕ Post a hustle', callback_data: 'post_start' }],
-      [{ text: "🤲 Hustles I'm doing", callback_data: 'my_applications' }, { text: '💼 Hustles I posted', callback_data: 'my_jobs' }],
+      [{ text: '📬 My Applications', callback_data: 'my_applications' }, { text: '💼 Hustles I posted', callback_data: 'my_jobs' }],
     ]
   };
 }
@@ -621,43 +621,49 @@ bot.on('callback_query', async (query) => {
 
   if (data === 'my_applications') {
     const apps = await getUserApplications(userId);
-    const active   = apps.filter(a => a.status === 'accepted');
-    const pending  = apps.filter(a => a.status === 'pending');
-    const rejected = apps.filter(a => a.status === 'rejected');
+    const pending = apps.filter(a => a.status === 'pending');
 
-    if (!active.length && !pending.length && !rejected.length) {
+    if (!pending.length) {
       await showState(chatId, userId,
-        `📬 *My Applications*\n\nYou haven't applied to any hustles yet.`,
-        { reply_markup: { inline_keyboard: [[{ text: '← Menu', callback_data: 'menu_back' }]] } }
+        `📬 *My Applications*\n\nYou have no pending applications right now.\n\nBrowse open hustles and apply to one!`,
+        { reply_markup: { inline_keyboard: [
+          [{ text: '🔍 Browse hustles', callback_data: 'browse' }],
+          [{ text: '← Menu', callback_data: 'menu_back' }],
+        ]}}
       );
       return;
     }
 
-    let text = '📬 *My Applications*\n\n';
+    let text = `📬 *My Applications*\n\n`;
+    text += `You have *${pending.length}* pending application${pending.length > 1 ? 's' : ''}:\n\n`;
     const buttons = [];
 
-    if (active.length) {
-      text += '🔨 *Active (working):*\n';
-      active.forEach(a => {
-        text += `• *${a.jobTitle}* · KES ${a.jobPay}\n`;
-        buttons.push([{ text: `🔨 ${a.jobTitle} — KES ${a.jobPay}`, callback_data: `worker_job_${a.jobId}` }]);
-      });
-      text += '\n';
-    }
-
-    if (pending.length) {
-      text += `⏳ *Pending (${pending.length}):*\n`;
-      pending.forEach(a => { text += `• ${a.jobTitle} · KES ${a.jobPay}\n`; });
-      text += '\n';
-    }
-
-    if (rejected.length) {
-      text += `❌ *Not selected (${rejected.length}):*\n`;
-      rejected.forEach(a => { text += `• ${a.jobTitle}\n`; });
+    for (const a of pending) {
+      const job = await getJob(a.jobId);
+      text += `🔨 *${a.jobTitle}* · KES ${a.jobPay}\n`;
+      if (job) text += `📍 ${job.location} · Posted by ${job.posterName}\n`;
+      text += `⏳ Waiting for response\n\n`;
+      buttons.push([{ text: `❌ Withdraw: ${a.jobTitle}`, callback_data: `withdraw_application_${a.jobId}` }]);
     }
 
     buttons.push([{ text: '← Menu', callback_data: 'menu_back' }]);
     await showState(chatId, userId, text, { reply_markup: { inline_keyboard: buttons } });
+    return;
+  }
+
+  if (data.startsWith('withdraw_application_')) {
+    const jobId = data.replace('withdraw_application_', '');
+    const job = await getJob(jobId);
+    const appSnap = await db.collection('applications')
+      .where('jobId', '==', String(jobId))
+      .where('workerId', '==', userId)
+      .get();
+    if (!appSnap.empty) {
+      await appSnap.docs[0].ref.delete();
+      // Decrement applicant count
+      if (job) await db.collection('jobs').doc(String(jobId)).update({ applicantCount: admin.firestore.FieldValue.increment(-1) }).catch(() => {});
+    }
+    showMenu(chatId, userId, `✅ Application withdrawn from *${job ? job.title : 'the job'}*.`);
     return;
   }
 
