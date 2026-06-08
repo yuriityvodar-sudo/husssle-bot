@@ -2026,9 +2026,8 @@ async function submitApplication(chatId, userId, user, jobId) {
     { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '👥 Review applicants', callback_data: `view_applicants_${jobId}` }]] } }
   ).catch(() => {});
 
-  bot.sendMessage(chatId,
-    `✅ *Application sent!*\n\n*${job.title}*\nKES ${job.pay} · ${job.location}\n\nThe poster will review and get back to you. Good luck! 🤞`,
-    { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '📋 Browse more', callback_data: 'browse' }], [{ text: '📬 My applications', callback_data: 'my_applications' }]] } }
+  showMenu(chatId, userId,
+    `✅ *Application sent!*\n\n*${job.title}* · KES ${job.pay}\n\n${job.posterName} will review and get back to you\. Good luck! 🤞`
   );
 }
 
