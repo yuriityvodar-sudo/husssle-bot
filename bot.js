@@ -140,7 +140,7 @@ async function formatChannelPost(job) {
   const totalSpent = posterDoc.exists ? (posterDoc.data().totalSpent || 0) : 0;
 
   const reviewsSnap = await db.collection('users').doc(String(job.posterId))
-    .collection('reviews').orderBy('createdAt', 'desc').limit(3).get();
+    .collection('reviews').orderBy('createdAt', 'desc').limit(2).get();
   let reviewsText = '';
   if (!reviewsSnap.empty) {
     const stars = n => '⭐'.repeat(n) + '☆'.repeat(5 - n);
@@ -2116,7 +2116,7 @@ async function showJobDetail(chatId, userId, jobId) {
 
   // Fetch last 3 reviews of the poster
   const reviewsSnap = await db.collection('users').doc(String(job.posterId))
-    .collection('reviews').orderBy('createdAt', 'desc').limit(3).get();
+    .collection('reviews').orderBy('createdAt', 'desc').limit(2).get();
   let reviewsText = '';
   if (!reviewsSnap.empty) {
     const stars = n => '⭐'.repeat(n) + '☆'.repeat(5 - n);
