@@ -353,6 +353,7 @@ bot.onText(/\/menu/, (msg) => {
 bot.onText(/\/work/, async (msg) => {
   const userId = msg.from.id;
   await getUser(msg.from);
+  updateUserPin(userId).catch(() => {});
 
   // Worker side — applications
   const apps = await getUserApplications(userId);
@@ -506,6 +507,7 @@ bot.on('callback_query', async (query) => {
     const activeWork = allMyApps.filter(a => a.status === 'accepted');
     if (activeWork.length >= 1) {
       bot.sendMessage(chatId, '⚠️ You can only work on 1 job at a time. Complete or leave your current job before applying to another.');
+      updateUserPin(userId).catch(() => {});
       return;
     }
 
