@@ -406,12 +406,6 @@ bot.onText(/\/work/, async (msg) => {
     text += '\n';
   }
 
-  // Rejected
-  if (rejected.length) {
-    text += `❌ *Not selected (${rejected.length})*\n`;
-    rejected.forEach(a => { text += `• ${a.jobTitle}\n`; });
-  }
-
   buttons.push([{ text: '← Menu', callback_data: 'menu_back' }]);
   await showState(msg.chat.id, userId, text, { reply_markup: { inline_keyboard: buttons } });
 });
