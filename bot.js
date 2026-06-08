@@ -2062,7 +2062,7 @@ async function publishJob(chatId, userId, user, draft) {
       ...(i === 0 ? { caption, parse_mode: 'Markdown' } : {})
     }));
     await bot.sendMediaGroup(CHANNEL_ID, mediaGroup).catch(e => console.log('Channel error:', e.message));
-    channelMsg = await bot.sendMessage(CHANNEL_ID, '👆 See photos above', { reply_markup: keyboard }).catch(e => console.log('Channel error:', e.message));
+    channelMsg = await bot.sendMessage(CHANNEL_ID, `📎 ${job.title}`, { reply_markup: keyboard }).catch(e => console.log('Channel error:', e.message));
   }
 
   if (channelMsg) {
