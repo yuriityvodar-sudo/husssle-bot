@@ -155,7 +155,7 @@ async function formatChannelPost(job) {
                      job.status === 'done'  ? '✅ Done' : '🟢 Open';
 
   return (
-    (job.status !== 'open' ? `${statusText}\n\n` : '') +
+    `${statusText}\n\n` +
     `💼 *${job.title}*\n\n` +
     `📝 ${job.description}\n\n` +
     `💰 *KES ${job.pay}*\n` +
@@ -163,7 +163,6 @@ async function formatChannelPost(job) {
     `${job.urgency || '⏰ Flexible'}\n\n` +
     `👤 Posted by: ${job.posterName} — ${getRatingStars(job.posterRating || 0, job.posterRatingCount || 0)}\n` +
     (totalSpent > 0 ? `💸 KES ${totalSpent.toLocaleString()} · paid to real people in Nairobi\n` : '') +
-    (job.status === 'open' ? `\n${statusText}` : '') +
     (reviewsText ? `\n${reviewsText}` : '')
   );
 }
