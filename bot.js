@@ -1253,8 +1253,8 @@ Keep hustling! 💪`,
       ]}}
     ).catch(() => {});
 
-    bot.sendMessage(chatId,
-      `✅ *Completion request sent!*\n\nWaiting for *${acceptedApp.workerName}* to confirm. You'll both be asked to leave a review once confirmed.`,
+    showMenu(chatId, userId,
+      `✅ *Completion request sent!*\n\nWaiting for *${acceptedApp.workerName}* to confirm\. You'll both be asked to leave a review once confirmed\.`,
       { parse_mode: 'Markdown' }
     );
     return;
@@ -1288,10 +1288,10 @@ Keep hustling! 💪`,
     posterSession.draft.completionWorkerName = user.name;
     posterSession.draft.completionRole       = 'poster';
 
-    bot.sendMessage(posterId,
+    showState(posterId, posterId,
       `🎉 *${user.name} confirmed the job is done!*\n\n👋 How did *"${job.title}"* go?\n\nTell us in a few words — what was done, how it went. This closes the job and builds your reputation on Husssle 🌟`,
-      { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '❌ Cancel', callback_data: 'cancel' }]] } }
-    ).then(m => { posterSession.draft.lastMsgId = m.message_id; }).catch(() => {});
+      { reply_markup: { inline_keyboard: [[{ text: '❌ Cancel', callback_data: 'cancel' }]] } }
+    ).then(m => { if (m) posterSession.draft.lastMsgId = m.message_id; }).catch(() => {});
 
     const workerSession = getSession(userId);
     workerSession.step = 'completion_review_comment';
@@ -1300,10 +1300,10 @@ Keep hustling! 💪`,
     workerSession.draft.completionPosterName = job.posterName;
     workerSession.draft.completionRole       = 'worker';
 
-    bot.sendMessage(chatId,
+    showState(chatId, userId,
       `👋 How did *"${job.title}"* go?\n\nTell us in a few words — what was done, how it went. This closes the job and builds your reputation on Husssle 🌟`,
-      { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '❌ Cancel', callback_data: 'cancel' }]] } }
-    ).then(m => { workerSession.draft.lastMsgId = m.message_id; });
+      { reply_markup: { inline_keyboard: [[{ text: '❌ Cancel', callback_data: 'cancel' }]] } }
+    ).then(m => { if (m) workerSession.draft.lastMsgId = m.message_id; }).catch(() => {});
     return;
   }
 
