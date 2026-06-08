@@ -2021,9 +2021,10 @@ async function submitApplication(chatId, userId, user, jobId) {
     applicantCount: admin.firestore.FieldValue.increment(1)
   });
 
-  bot.sendMessage(job.posterId,
+  // Use showState so new application notifications replace old ones
+  await showState(job.posterId, job.posterId,
     `🔔 *New application on your hustle!*\n\nJob: *${job.title}*\nApplicant: ${user.name} — ${getRatingStars(user.rating, user.ratingCount)}\n\nTap to review:`,
-    { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '👥 Review applicants', callback_data: `view_applicants_${jobId}` }]] } }
+    { reply_markup: { inline_keyboard: [[{ text: '👥 Review applicants', callback_data: `view_applicants_${jobId}` }]] } }
   ).catch(() => {});
 
   showMenu(chatId, userId,
