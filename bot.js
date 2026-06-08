@@ -487,7 +487,14 @@ bot.on('callback_query', async (query) => {
   if (data.startsWith('apply_')) {
     const jobId = data.replace('apply_', '');
     const job   = await getJob(jobId);
-    if (!job) { bot.sendMessage(chatId, '❌ Job not found.'); return; }
+    if (!job) {
+      // Job no longer exists — clean up stale application
+      await db.collection('applications').where('jobId', '==', String(jobId)).where('workerId', '==', userId).get()
+        .then(snap => snap.docs.forEach(d => d.ref.update({ status: 'done' }))).catch(() => {});
+      updateUserPin(userId, true).catch(() => {});
+      bot.sendMessage(chatId, '⚠️ This job no longer exists. Your status has been updated.');
+      return;
+    }
     if (job.posterId === userId) { bot.sendMessage(chatId, "⚠️ You can't apply to your own hustle."); return; }
     if (job.status !== 'open')  { bot.sendMessage(chatId, "⚠️ This hustle is no longer open."); return; }
     // Rule 2: Max 20 pending applications at once
@@ -886,7 +893,14 @@ bot.on('callback_query', async (query) => {
   if (data.startsWith('worker_job_')) {
     const jobId = data.replace('worker_job_', '');
     const job   = await getJob(jobId);
-    if (!job) { bot.sendMessage(chatId, '❌ Job not found.'); return; }
+    if (!job) {
+      // Job no longer exists — clean up stale application
+      await db.collection('applications').where('jobId', '==', String(jobId)).where('workerId', '==', userId).get()
+        .then(snap => snap.docs.forEach(d => d.ref.update({ status: 'done' }))).catch(() => {});
+      updateUserPin(userId, true).catch(() => {});
+      bot.sendMessage(chatId, '⚠️ This job no longer exists. Your status has been updated.');
+      return;
+    }
     const poster = await db.collection('users').doc(String(job.posterId)).get();
     const posterData = poster.exists ? poster.data() : { name: 'Customer', phone: 'N/A' };
     // Clear previous worker_job message for this job
