@@ -1210,9 +1210,9 @@ Keep hustling! 💪`,
     const workerId = parseInt(parts[2]);
 
     // Confirm phone before accepting
-    bot.sendMessage(chatId,
+    const phoneConfirmMsg = await showState(chatId, userId,
       `📱 Your number will be shared with the worker:\n*${user.phone || 'No phone set'}*\n\nIs this correct?`,
-      { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [
+      { reply_markup: { inline_keyboard: [
         [{ text: '✅ Yes, confirm', callback_data: `confirm_phone_accept_${jobId}_${workerId}` }],
         [{ text: '✏️ Change number', callback_data: `change_phone_accept_${jobId}_${workerId}` }],
       ]}}
