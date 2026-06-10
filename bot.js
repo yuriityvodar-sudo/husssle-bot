@@ -725,7 +725,14 @@ bot.on('callback_query', async (query) => {
     const job = await getJob(jobId);
     if (!job) { bot.sendMessage(chatId, '❌ Job not found.'); return; }
     if (job.channelMsgId) {
-      await bot.deleteMessage(CHANNEL_ID, job.channelMsgId).catch(() => {});
+      try {
+        await bot.deleteMessage(CHANNEL_ID, job.channelMsgId);
+      } catch (e) {
+        const alreadyGone = e.message && (e.message.includes('message to delete not found') || e.message.includes('MESSAGE_ID_INVALID'));
+        if (!alreadyGone) {
+          bot.sendMessage(chatId, `⚠️ Could not delete channel post (msgId: ${job.channelMsgId}). Please delete it manually from @husssleke.`).catch(() => {});
+        }
+      }
     }
     const apps = await getJobApplications(jobId);
     const affectedUserIds = new Set([job.posterId]);
@@ -882,7 +889,12 @@ bot.on('callback_query', async (query) => {
 
     // Delete channel message
     if (job.channelMsgId) {
-      await bot.deleteMessage(CHANNEL_ID, job.channelMsgId).catch(() => {});
+      try {
+        await bot.deleteMessage(CHANNEL_ID, job.channelMsgId);
+      } catch (e) {
+        const alreadyGone = e.message && (e.message.includes('message to delete not found') || e.message.includes('MESSAGE_ID_INVALID'));
+        if (!alreadyGone) console.error(`❌ Failed to delete channel post for "${job.title}": ${e.message}`);
+      }
     }
     // Delete all applications
     const apps = await getJobApplications(jobId);
@@ -2083,6 +2095,12 @@ async function publishJob(chatId, userId, user, draft) {
 
   if (channelMsg) {
     await jobRef.update({ channelMsgId: channelMsg.message_id });
+    await db.collection('channelPosts').doc(String(channelMsg.message_id)).set({
+      channelMsgId: channelMsg.message_id,
+      jobId:        jobId,
+      jobTitle:     job.title,
+      createdAt:    Date.now(),
+    });
   }
 
   updateUserPin(userId).catch(() => {});
@@ -2627,6 +2645,7 @@ async function cleanupExpiredJobs() {
         const appsSnap = await db.collection('applications').where('jobId', '==', String(job.id)).get();
         for (const appDoc of appsSnap.docs) await appDoc.ref.delete().catch(() => {});
         await doc.ref.delete();
+        if (job.channelMsgId) await db.collection('channelPosts').doc(String(job.channelMsgId)).delete().catch(() => {});
         console.log(`✅ Deleted expired done job: ${job.title}`);
       }
     }
@@ -2712,11 +2731,46 @@ async function cleanupExpiredJobs() {
         const appsSnap = await db.collection('applications').where('jobId', '==', String(job.id)).get();
         for (const appDoc of appsSnap.docs) await appDoc.ref.delete().catch(() => {});
         await doc.ref.delete();
+        if (job.channelMsgId) await db.collection('channelPosts').doc(String(job.channelMsgId)).delete().catch(() => {});
         console.log(`✅ Deleted expired cancelled job: ${job.title}`);
       }
     }
 
-    // 5. Retry previously failed channel deletes
+    // 5. Safety net — scan channelPosts for orphaned channel messages
+    // Catches cases where Firestore job was deleted but channel message wasn't
+    const channelPostsSnap = await db.collection('channelPosts').get();
+    if (!channelPostsSnap.empty) {
+      for (const doc of channelPostsSnap.docs) {
+        const cp = doc.data();
+        const job = await getJob(cp.jobId).catch(() => null);
+        const jobGone   = !job;
+        const jobExpired = job && job.status === 'done' && job.deleteAt && job.deleteAt <= now;
+        if (jobGone || jobExpired) {
+          try {
+            await bot.deleteMessage(CHANNEL_ID, cp.channelMsgId);
+            console.log(`✅ Safety net deleted channel post for "${cp.jobTitle}" (msgId: ${cp.channelMsgId})`);
+          } catch (e) {
+            const alreadyGone = e.message && (e.message.includes('message to delete not found') || e.message.includes('MESSAGE_ID_INVALID'));
+            if (!alreadyGone) {
+              console.error(`❌ Safety net failed for "${cp.jobTitle}": ${e.message}`);
+              bot.sendMessage(ADMIN_ID,
+                `⚠️ *Stuck channel post*
+
+Job: *${cp.jobTitle}*
+Msg ID: ${cp.channelMsgId}
+
+Please delete manually from @husssleke.`,
+                { parse_mode: 'Markdown' }
+              ).catch(() => {});
+              continue;
+            }
+          }
+          await doc.ref.delete();
+        }
+      }
+    }
+
+    // 6. Retry previously failed channel deletes
     const failedSnap = await db.collection('jobs')
       .where('channelDeleteFailed', '==', true)
       .get();
