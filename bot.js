@@ -857,8 +857,13 @@ bot.on('callback_query', async (query) => {
 
   if (data.startsWith('delete_job_')) {
     const jobId = data.replace('delete_job_', '');
+    console.log(`[DELETE] delete_job_ tapped — jobId=${jobId}, userId=${userId}`);
     const job = await getJob(jobId);
-    if (!job || job.posterId !== userId) return;
+    if (!job) { console.log(`[DELETE] delete_job_ ABORT — job not found`); return; }
+    if (job.posterId !== userId) {
+      console.log(`[DELETE] delete_job_ ABORT — posterId(${job.posterId}, ${typeof job.posterId}) !== userId(${userId}, ${typeof userId})`);
+      return;
+    }
     // Ask for confirmation
     bot.sendMessage(chatId,
       `🗑️ *Delete "${job.title}"?*\n\nThis will remove the job from the channel and database. This cannot be undone.`,
@@ -872,39 +877,69 @@ bot.on('callback_query', async (query) => {
 
   if (data.startsWith('confirm_delete_')) {
     const jobId = data.replace('confirm_delete_', '');
+    console.log(`[DELETE] confirm_delete_ tapped — jobId=${jobId}, userId=${userId}`);
     const job = await getJob(jobId);
-    if (!job || job.posterId !== userId) return;
+    if (!job) { console.log(`[DELETE] confirm ABORT — job not found`); bot.sendMessage(chatId, '⚠️ Job not found.'); return; }
+    if (job.posterId !== userId) {
+      console.log(`[DELETE] confirm ABORT — posterId(${job.posterId}, ${typeof job.posterId}) !== userId(${userId}, ${typeof userId})`);
+      bot.sendMessage(chatId, '⚠️ Not your job.');
+      return;
+    }
+    console.log(`[DELETE] guard passed — status=${job.status}, channelMsgId=${job.channelMsgId}`);
 
-    // Notify accepted worker if job is taken
-    if (job.status === 'taken') {
+    try {
+      // Notify accepted worker if job is taken
+      if (job.status === 'taken') {
+        const acceptedApps = await getJobApplications(jobId);
+        const acceptedApp = acceptedApps.find(a => a.status === 'accepted');
+        if (acceptedApp) {
+          bot.sendMessage(acceptedApp.workerId,
+            `⚠️ *Job Cancelled*\n\nThe job *${job.title}* (KES ${job.pay}) has been cancelled by the customer.\n\nSorry for the inconvenience. Keep hustling! 💪`,
+            { parse_mode: 'Markdown' }
+          ).catch(() => {});
+        }
+      }
+
+      // Delete channel message
+      let channelWarning = '';
+      if (job.channelMsgId) {
+        console.log(`[DELETE] attempting channel delete — msgId=${job.channelMsgId}`);
+        try {
+          await bot.deleteMessage(CHANNEL_ID, job.channelMsgId);
+          console.log(`[DELETE] channel post deleted OK`);
+        } catch (e) {
+          const alreadyGone = e.message && (e.message.includes('message to delete not found') || e.message.includes('MESSAGE_ID_INVALID'));
+          if (alreadyGone) {
+            console.log(`[DELETE] channel post already gone — ${e.message}`);
+          } else {
+            console.log(`[DELETE] channel delete FAILED — ${e.message}`);
+            channelWarning = '\n\n⚠️ Removed from the database, but I could not remove it from the channel — please delete it manually, and check that the bot is still an admin of the channel with delete permission.';
+          }
+        }
+      } else {
+        console.log(`[DELETE] no channelMsgId — skipping channel delete`);
+      }
+
+      // Delete all applications
+      console.log(`[DELETE] fetching applications...`);
       const apps = await getJobApplications(jobId);
-      const acceptedApp = apps.find(a => a.status === 'accepted');
-      if (acceptedApp) {
-        bot.sendMessage(acceptedApp.workerId,
-          `⚠️ *Job Cancelled*\n\nThe job *${job.title}* (KES ${job.pay}) has been cancelled by the customer.\n\nSorry for the inconvenience. Keep hustling! 💪`,
-          { parse_mode: 'Markdown' }
-        ).catch(() => {});
+      console.log(`[DELETE] got ${apps.length} application(s)`);
+      for (const app of apps) {
+        await db.collection('applications').doc(`${jobId}_${app.workerId}`).delete().catch(() => {});
       }
-    }
 
-    // Delete channel message
-    if (job.channelMsgId) {
-      try {
-        await bot.deleteMessage(CHANNEL_ID, job.channelMsgId);
-      } catch (e) {
-        const alreadyGone = e.message && (e.message.includes('message to delete not found') || e.message.includes('MESSAGE_ID_INVALID'));
-        if (!alreadyGone) console.error(`❌ Failed to delete channel post for "${job.title}": ${e.message}`);
-      }
+      // Delete job from Firebase
+      console.log(`[DELETE] deleting job doc from Firestore...`);
+      await db.collection('jobs').doc(String(jobId)).delete();
+      console.log(`[DELETE] job doc deleted OK ✅`);
+      if (job.channelMsgId) await db.collection('channelPosts').doc(String(job.channelMsgId)).delete().catch(() => {});
+
+      updateUserPin(userId).catch(() => {});
+      bot.sendMessage(chatId, '✅ Job deleted successfully.' + channelWarning, { parse_mode: 'Markdown' });
+    } catch (e) {
+      console.log(`[DELETE] EXCEPTION — ${e.stack || e.message}`);
+      bot.sendMessage(chatId, '❌ Something went wrong deleting that job. Please try again.');
     }
-    // Delete all applications
-    const apps = await getJobApplications(jobId);
-    for (const app of apps) {
-      await db.collection('applications').doc(`${jobId}_${app.workerId}`).delete().catch(() => {});
-    }
-    // Delete job from Firebase
-    await db.collection('jobs').doc(String(jobId)).delete();
-    updateUserPin(userId).catch(() => {});
-    bot.sendMessage(chatId, '✅ Job deleted successfully.');
     return;
   }
 
