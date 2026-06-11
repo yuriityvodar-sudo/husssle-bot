@@ -103,6 +103,40 @@ function containsBannedWords(text) {
   const lower = text.toLowerCase();
   return BANNED_WORDS.find(word => lower.includes(word)) || null;
 }
+function escapeMarkdown(text) {
+  if (!text) return '';
+  // Markdown v1 only needs _ * ` [ escaped
+  return String(text).replace(/[_*`[]/g, '\\$&');
+}
+
+function generateHashtags(job) {
+  const tags = [];
+  // Location tag (e.g. #westlands #karen #cbd)
+  if (job.location) {
+    const loc = job.location.toLowerCase().replace(/\s+/g, '').replace(/[^a-z0-9]/gi, '');
+    if (loc.length > 1) tags.push(`#${loc}`);
+  }
+  // Urgency tag
+  if (job.urgency) {
+    if (job.urgency.includes('ASAP')) tags.push('#urgent');
+    else if (job.urgency.includes('week')) tags.push('#thisweek');
+    else if (job.urgency.includes('month')) tags.push('#thismonth');
+    else tags.push('#flexible');
+  }
+  // Price range tag (KES)
+  const pay = parseInt(job.pay) || 0;
+  if (pay > 0 && pay <= 500)   tags.push('#kes100_500');
+  else if (pay <= 2000)        tags.push('#kes500_2000');
+  else if (pay <= 5000)        tags.push('#kes2000_5000');
+  else if (pay > 5000)         tags.push('#kes5000plus');
+  // First word of title (e.g. #cleaning)
+  if (job.title) {
+    const firstWord = job.title.split(' ')[0].toLowerCase().replace(/[^a-z0-9]/gi, '');
+    if (firstWord.length > 2) tags.push(`#${firstWord}`);
+  }
+  return tags.join(' ');
+}
+
 const bot        = new TelegramBot(BOT_TOKEN, { polling: true });
 // Force-evict any other bot instance still polling with this token (fixes 409 Conflict)
 bot.deleteWebHook({ drop_pending_updates: true }).catch(() => {});
@@ -148,24 +182,28 @@ async function formatChannelPost(job) {
     const stars = n => '⭐'.repeat(n) + '☆'.repeat(5 - n);
     reviewsText = '\n💬 *Recent reviews:*\n' + reviewsSnap.docs.map(d => {
       const r = d.data();
-      return `${stars(r.stars)} _"${r.comment}"_ — ${r.fromName}`;
+      return `${stars(r.stars)} _"${escapeMarkdown(r.comment)}"_ — ${escapeMarkdown(r.fromName)}`;
     }).join('\n');
   }
 
   const statusText = job.status === 'open' ? '🟢 Looking for someone to do this' :
                      job.status === 'taken' ? '🟡 Someone grabbed this — work started' :
-                     job.status === 'done'  ? '✅ Done' : '🟢 Open';
+                     job.status === 'done'  ? '✅ Done' :
+                     job.status === 'cancelled' ? '❌ Cancelled by the customer' : '🟢 Open';
+
+  const hashtags = generateHashtags(job);
 
   return (
     `${statusText}\n\n` +
-    `💼 *${job.title}*\n\n` +
-    `📝 ${job.description}\n\n` +
+    `💼 *${escapeMarkdown(job.title)}*\n\n` +
+    `📝 ${escapeMarkdown(job.description)}\n\n` +
     `💰 *KES ${job.pay}*\n` +
-    `📍 ${job.location}\n` +
+    `📍 ${escapeMarkdown(job.location)}\n` +
     `${job.urgency || '⏰ Flexible'}\n\n` +
-    `👤 Posted by: ${job.posterName} — ${getRatingStars(job.posterRating || 0, job.posterRatingCount || 0)}\n` +
+    `👤 Posted by: ${escapeMarkdown(job.posterName)} — ${getRatingStars(job.posterRating || 0, job.posterRatingCount || 0)}\n` +
     (totalSpent > 0 ? `💸 KES ${totalSpent.toLocaleString()} · paid to real people in Nairobi\n` : '') +
-    (reviewsText ? `\n${reviewsText}` : '')
+    (reviewsText ? `\n${reviewsText}` : '') +
+    (hashtags ? `\n\n${hashtags}` : '')
   );
 }
 
@@ -384,7 +422,7 @@ bot.onText(/\/work/, async (msg) => {
     text += '📌 *Jobs I posted:*\n';
     postedJobs.forEach(j => {
       const status = j.status === 'open' ? '🟢 Open' : '🟡 In progress';
-      text += `${status} *${j.title}* · KES ${j.pay}\n`;
+      text += `${status} *${escapeMarkdown(j.title)}* · KES ${j.pay}\n`;
       buttons.push([{ text: `${j.status === 'open' ? '🟢' : '🟡'} ${j.title} — KES ${j.pay}`, callback_data: `manage_job_${j.id}` }]);
     });
     text += '\n';
@@ -524,10 +562,10 @@ bot.on('callback_query', async (query) => {
           return;
         }
         await db.collection('applications').doc(myApp.docId || `${jobId}_${userId}`).update({ status: 'pending', appliedAt: Date.now(), reapplyCount: reapplyCount + 1 });
-        bot.sendMessage(chatId, `✅ *Re-application sent!*\n\n${job.title}\nKES ${job.pay} · ${job.location}\n\nGood luck this time! 🤞`, { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '📬 My applications', callback_data: 'my_applications' }]] } });
+        bot.sendMessage(chatId, `✅ *Re-application sent!*\n\n${escapeMarkdown(job.title)}\nKES ${job.pay} · ${escapeMarkdown(job.location)}\n\nGood luck this time! 🤞`, { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '📬 My applications', callback_data: 'my_applications' }]] } });
         // Notify poster
         bot.sendMessage(job.posterId,
-          `🔔 *${user.name}* re-applied to your hustle *${job.title}*\n\nTap to review:`,
+          `🔔 *${escapeMarkdown(user.name)}* re-applied to your hustle *${escapeMarkdown(job.title)}*\n\nTap to review:`,
           { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '👥 Review applicants', callback_data: `view_applicants_${jobId}` }]] } }
         ).catch(() => {});
         return;
@@ -643,7 +681,7 @@ bot.on('callback_query', async (query) => {
     for (const a of pending) {
       const job = await getJob(a.jobId);
       text += `🔨 *${a.jobTitle}* · KES ${a.jobPay}\n`;
-      if (job) text += `📍 ${job.location} · Posted by ${job.posterName}\n`;
+      if (job) text += `📍 ${escapeMarkdown(job.location)} · Posted by ${escapeMarkdown(job.posterName)}\n`;
       text += `⏳ Waiting for response\n\n`;
       buttons.push([{ text: `❌ Withdraw: ${a.jobTitle}`, callback_data: `withdraw_application_${a.jobId}` }]);
     }
@@ -689,7 +727,7 @@ bot.on('callback_query', async (query) => {
       const pending  = apps.filter(a => a.status === 'pending').length;
       const accepted = apps.filter(a => a.status === 'accepted').length;
       const statusIcon = j.status === 'open' ? '🟢' : '🟡';
-      text += `${statusIcon} *${j.title}* · KES ${j.pay}\n`;
+      text += `${statusIcon} *${escapeMarkdown(j.title)}* · KES ${j.pay}\n`;
       if (pending) text += `   ⏳ ${pending} waiting\n`;
       if (accepted) text += `   ✅ ${accepted} accepted\n`;
       text += '\n';
@@ -712,7 +750,7 @@ bot.on('callback_query', async (query) => {
     const job = await getJob(jobId);
     if (!job) { bot.sendMessage(chatId, '❌ Job not found.'); return; }
     bot.sendMessage(chatId,
-      `🗑️ *Delete "${job.title}"?*\n\nThis will remove the job from the channel and database.`,
+      `🗑️ *Delete "${escapeMarkdown(job.title)}"?*\n\nThis will remove the job from the channel and database.`,
       { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [
         [{ text: '✅ Yes, delete', callback_data: `confirm_admin_delete_${jobId}` }],
         [{ text: '❌ Cancel', callback_data: 'browse' }],
@@ -768,7 +806,7 @@ bot.on('callback_query', async (query) => {
         await db.collection('users').doc(String(uid)).update({ pinnedMsgId: null }).catch(() => {});
         updateUserPin(uid).catch(() => {});
       }
-      showMenu(chatId, userId, `✅ Job *"${job.title}"* deleted.`);
+      showMenu(chatId, userId, `✅ Job *"${escapeMarkdown(job.title)}"* deleted.`);
     } catch (e) {
       console.log(`[ADMIN-DEL] EXCEPTION — ${e.stack || e.message}`);
       bot.sendMessage(chatId, '❌ Something went wrong deleting that job. Please try again.');
@@ -783,7 +821,7 @@ bot.on('callback_query', async (query) => {
     const targetDoc = await db.collection('users').doc(String(targetId)).get();
     const targetName = targetDoc.exists ? targetDoc.data().name : 'Unknown';
     bot.sendMessage(targetId, '✅ You have been unbanned from Husssle. Welcome back!').catch(() => {});
-    bot.sendMessage(chatId, `✅ *${targetName}* has been unbanned.`, { parse_mode: 'Markdown' });
+    bot.sendMessage(chatId, `✅ *${escapeMarkdown(targetName)}* has been unbanned.`, { parse_mode: 'Markdown' });
     return;
   }
 
@@ -793,7 +831,7 @@ bot.on('callback_query', async (query) => {
     const targetDoc = await db.collection('users').doc(String(targetId)).get();
     const targetName = targetDoc.exists ? targetDoc.data().name : 'Unknown';
     bot.sendMessage(chatId,
-      `🚫 *Ban ${targetName}?*\n\nThis will prevent them from using the bot.`,
+      `🚫 *Ban ${escapeMarkdown(targetName)}?*\n\nThis will prevent them from using the bot.`,
       { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [
         [{ text: '✅ Yes, ban them', callback_data: `confirm_ban_${targetId}` }],
         [{ text: '❌ Cancel', callback_data: 'cancel' }],
@@ -809,7 +847,7 @@ bot.on('callback_query', async (query) => {
     const targetDoc = await db.collection('users').doc(String(targetId)).get();
     const targetName = targetDoc.exists ? targetDoc.data().name : 'Unknown';
     bot.sendMessage(targetId, '🚫 You have been banned from Husssle.\n\nIf you think this is a mistake, contact support.').catch(() => {});
-    bot.sendMessage(chatId, `✅ *${targetName}* has been banned.`, { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '← Menu', callback_data: 'menu_back' }]] } });
+    bot.sendMessage(chatId, `✅ *${escapeMarkdown(targetName)}* has been banned.`, { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '← Menu', callback_data: 'menu_back' }]] } });
     return;
   }
 
@@ -823,7 +861,7 @@ bot.on('callback_query', async (query) => {
     if (acceptedApp) {
       await db.collection('applications').doc(`${jobId}_${acceptedApp.workerId}`).update({ status: 'rejected' });
       bot.sendMessage(acceptedApp.workerId,
-        `ℹ️ *Job Update*\n\nThe job *${job.title}* has been re-opened by the customer. Your application has been cancelled.`,
+        `ℹ️ *Job Update*\n\nThe job *${escapeMarkdown(job.title)}* has been re-opened by the customer. Your application has been cancelled.`,
         { parse_mode: 'Markdown' }
       ).catch(() => {});
     }
@@ -831,7 +869,7 @@ bot.on('callback_query', async (query) => {
     if (reopenCount > 5) {
       // Auto-delete after 5th re-open
       await db.collection('jobs').doc(String(jobId)).delete();
-      bot.sendMessage(chatId, `❌ *${job.title}* has been re-opened too many times and has been automatically deleted. Please post a new job if you still need help.`, { parse_mode: 'Markdown' });
+      bot.sendMessage(chatId, `❌ *${escapeMarkdown(job.title)}* has been re-opened too many times and has been automatically deleted. Please post a new job if you still need help.`, { parse_mode: 'Markdown' });
       updateUserPin(userId, true).catch(() => {});
       return;
     }
@@ -852,7 +890,7 @@ bot.on('callback_query', async (query) => {
     if (acceptedApp) {
       await db.collection('applications').doc(`${jobId}_${acceptedApp.workerId}`).update({ status: 'rejected' });
       bot.sendMessage(acceptedApp.workerId,
-        `⚠️ *Job Cancelled*\n\nThe job *${job.title}* (KES ${job.pay}) has been cancelled by the customer.\n\nSorry for the inconvenience. Keep hustling! 💪`,
+        `⚠️ *Job Cancelled*\n\nThe job *${escapeMarkdown(job.title)}* (KES ${job.pay}) has been cancelled by the customer.\n\nSorry for the inconvenience. Keep hustling! 💪`,
         { parse_mode: 'Markdown' }
       ).catch(() => {});
       // Track cancellations with accepted workers
@@ -866,14 +904,15 @@ bot.on('callback_query', async (query) => {
         ).catch(() => {});
       } else if (cancelCount >= 6 && cancelCount % 3 === 0) {
         bot.sendMessage(ADMIN_ID,
-          `🚨 *Poster flagged*\n\nUser *${user.name}* (ID: ${userId}) has cancelled ${cancelCount} jobs with accepted workers.`,
+          `🚨 *Poster flagged*\n\nUser *${escapeMarkdown(user.name)}* (ID: ${userId}) has cancelled ${cancelCount} jobs with accepted workers.`,
           { parse_mode: 'Markdown' }
         ).catch(() => {});
       }
     }
     const cancelDeleteAt = Date.now() + 24 * 60 * 60 * 1000;
     await db.collection('jobs').doc(String(jobId)).update({ status: 'cancelled', deleteAt: cancelDeleteAt });
-    if (job.channelMsgId) await bot.deleteMessage(CHANNEL_ID, job.channelMsgId).catch(() => {});
+    // Show "cancelled" on the channel post (cleanup deletes it after 24h)
+    await updateChannelPost({ ...job, status: 'cancelled' });
     if (acceptedApp) updateUserPin(acceptedApp.workerId).catch(() => {});
     updateUserPin(userId).catch(() => {});
     bot.sendMessage(chatId, '❌ Job cancelled. Worker has been notified.', { reply_markup: { inline_keyboard: [[{ text: '← My jobs', callback_data: 'my_jobs' }]] } });
@@ -891,7 +930,7 @@ bot.on('callback_query', async (query) => {
     }
     // Ask for confirmation
     bot.sendMessage(chatId,
-      `🗑️ *Delete "${job.title}"?*\n\nThis will remove the job from the channel and database. This cannot be undone.`,
+      `🗑️ *Delete "${escapeMarkdown(job.title)}"?*\n\nThis will remove the job from the channel and database. This cannot be undone.`,
       { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [
         [{ text: '✅ Yes, delete it', callback_data: `confirm_delete_${jobId}` }],
         [{ text: '❌ Cancel', callback_data: `manage_job_${jobId}` }],
@@ -919,7 +958,7 @@ bot.on('callback_query', async (query) => {
         const acceptedApp = acceptedApps.find(a => a.status === 'accepted');
         if (acceptedApp) {
           bot.sendMessage(acceptedApp.workerId,
-            `⚠️ *Job Cancelled*\n\nThe job *${job.title}* (KES ${job.pay}) has been cancelled by the customer.\n\nSorry for the inconvenience. Keep hustling! 💪`,
+            `⚠️ *Job Cancelled*\n\nThe job *${escapeMarkdown(job.title)}* (KES ${job.pay}) has been cancelled by the customer.\n\nSorry for the inconvenience. Keep hustling! 💪`,
             { parse_mode: 'Markdown' }
           ).catch(() => {});
         }
@@ -989,9 +1028,9 @@ bot.on('callback_query', async (query) => {
     }
     const workerViewMsg = await bot.sendMessage(chatId,
       `━━━━━━━━━━━━━━━\n🚨 *ACTIVE JOB* 🚨\n━━━━━━━━━━━━━━━\n\n` +
-      `🔨 *${job.title}*\n` +
+      `🔨 *${escapeMarkdown(job.title)}*\n` +
       `💰 KES ${job.pay}\n` +
-      `📍 ${job.location}\n\n` +
+      `📍 ${escapeMarkdown(job.location)}\n\n` +
       `👤 Customer: *${posterData.name}*\n` +
       `📱 Phone: *${posterData.phone || 'N/A'}*`,
       { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [
@@ -1008,6 +1047,21 @@ bot.on('callback_query', async (query) => {
 
   if (data.startsWith('confirm_phone_apply_')) {
     const jobId = data.replace('confirm_phone_apply_', '');
+    // Show consent before applying
+    bot.sendMessage(chatId,
+      `📋 *Before you apply*\n\nBy applying for this hustle, you agree that:\n\n• The customer may message you on Telegram to discuss details\n• Your phone number will be visible to the customer if you're accepted\n\nContinue?`,
+      { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [
+        [{ text: '✅ I agree, apply', callback_data: `consent_apply_${jobId}` }],
+        [{ text: '❌ Cancel', callback_data: 'cancel' }],
+      ]}}
+    );
+    return;
+  }
+
+  if (data.startsWith('consent_apply_')) {
+    const jobId = data.replace('consent_apply_', '');
+    const job = await getJob(jobId);
+    if (!job) { bot.sendMessage(chatId, '⚠️ Job not found.'); return; }
     submitApplication(chatId, userId, user, jobId);
     return;
   }
@@ -1066,7 +1120,7 @@ bot.on('callback_query', async (query) => {
       requestedAt: Date.now(),
     });
     await showState(job.posterId, job.posterId,
-      `✅ *Completion Request*\n\n*${user.name}* says the job *${job.title}* is done.\n\nConfirm?`,
+      `✅ *Completion Request*\n\n*${escapeMarkdown(user.name)}* says the job *${escapeMarkdown(job.title)}* is done.\n\nConfirm?`,
       { reply_markup: { inline_keyboard: [
         [{ text: '✅ Yes, mark as done!', callback_data: `mark_done_${jobId}` }],
         [{ text: '❌ Not yet', callback_data: `decline_done_${jobId}_${userId}` }],
@@ -1135,8 +1189,8 @@ bot.on('callback_query', async (query) => {
     const reopenCount2 = (job.reopenCount || 0) + 1;
     if (reopenCount2 > 5) {
       await db.collection('jobs').doc(String(jobId)).delete();
-      await showState(workerId, workerId, `✅ You have been released from *${job.title}*. The job has been automatically deleted as it has been re-opened too many times.`, {}).catch(() => {});
-      showMenu(chatId, userId, `❌ *${job.title}* has been automatically deleted — re-opened too many times.`);
+      await showState(workerId, workerId, `✅ You have been released from *${escapeMarkdown(job.title)}*. The job has been automatically deleted as it has been re-opened too many times.`, {}).catch(() => {});
+      showMenu(chatId, userId, `❌ *${escapeMarkdown(job.title)}* has been automatically deleted — re-opened too many times.`);
       updateUserPin(userId, true).catch(() => {});
       updateUserPin(workerId, true).catch(() => {});
       return;
@@ -1146,10 +1200,10 @@ bot.on('callback_query', async (query) => {
     updateUserPin(userId, true).catch(() => {});
     updateUserPin(workerId, true).catch(() => {});
     await showState(workerId, workerId,
-      `✅ *Leave approved*\n\nThe customer approved your request. You've been removed from *${job.title}*.`,
+      `✅ *Leave approved*\n\nThe customer approved your request. You've been removed from *${escapeMarkdown(job.title)}*.`,
       {}
     ).catch(() => {});
-    showMenu(chatId, userId, `✅ *${job.title}* is back to Open. Worker has been notified.`);
+    showMenu(chatId, userId, `✅ *${escapeMarkdown(job.title)}* is back to Open. Worker has been notified.`);
     return;
   }
 
@@ -1173,12 +1227,12 @@ bot.on('callback_query', async (query) => {
       await db.collection('jobs').doc(String(jobId)).update({ status: 'open', reopenCount, leaveDeclineCount: 0 });
       await updateChannelPost({ ...job, status: 'open' });
       await showState(workerId, workerId,
-        `✅ *You've been released*\n\nThe customer declined your leave request 3 times. You have been automatically released from *${job.title}*. The job is back to open.`,
+        `✅ *You've been released*\n\nThe customer declined your leave request 3 times. You have been automatically released from *${escapeMarkdown(job.title)}*. The job is back to open.`,
         {}
       ).catch(() => {});
       updateUserPin(workerId, true).catch(() => {});
       updateUserPin(userId, true).catch(() => {});
-      showMenu(chatId, userId, `⚠️ You declined the worker's leave request 3 times. They have been automatically released from *${job.title}*.`);
+      showMenu(chatId, userId, `⚠️ You declined the worker's leave request 3 times. They have been automatically released from *${escapeMarkdown(job.title)}*.`);
     } else {
       await showState(workerId, workerId,
         `❌ *Leave declined*\n\nThe customer wants you to stay on the job. Keep going! 💪\n\n_Note: After 3 declines you will be automatically released._`,
@@ -1216,9 +1270,9 @@ bot.on('callback_query', async (query) => {
     const posterData = poster.exists ? poster.data() : { name: 'N/A', phone: 'N/A' };
     bot.sendMessage(ADMIN_ID,
       `⚠️ *Worker Report*\n\n` +
-      `🔨 Job: *${job.title}* (KES ${job.pay})\n` +
-      `📍 ${job.location}\n\n` +
-      `👷 Worker: *${user.name}* (ID: ${userId})\n` +
+      `🔨 Job: *${escapeMarkdown(job.title)}* (KES ${job.pay})\n` +
+      `📍 ${escapeMarkdown(job.location)}\n\n` +
+      `👷 Worker: *${escapeMarkdown(user.name)}* (ID: ${userId})\n` +
       `📱 ${user.phone || 'N/A'}\n\n` +
       `👤 Customer: *${posterData.name}* (ID: ${job.posterId})\n` +
       `📱 ${posterData.phone || 'N/A'}\n\n` +
@@ -1244,8 +1298,8 @@ bot.on('callback_query', async (query) => {
     const apps = await getJobApplications(jobId);
     const rejected = apps.filter(a => a.status === 'rejected');
     if (!rejected.length) { await showState(chatId, userId, 'No rejected applicants.'); return; }
-    let text = `❌ *Rejected applicants for "${job.title}"*\n\n`;
-    rejected.forEach(a => { text += `• *${a.workerName}* — ${getRatingStars(a.rating, a.ratingCount)}\n📱 ${a.workerPhone}\n\n`; });
+    let text = `❌ *Rejected applicants for "${escapeMarkdown(job.title)}"*\n\n`;
+    rejected.forEach(a => { text += `• *${escapeMarkdown(a.workerName)}* — ${getRatingStars(a.rating, a.ratingCount)}\n📱 ${a.workerPhone}\n\n`; });
     await showState(chatId, userId, text, { reply_markup: { inline_keyboard: [] } });
     return;
   }
@@ -1257,8 +1311,8 @@ bot.on('callback_query', async (query) => {
     const apps = await getJobApplications(jobId);
     const accepted = apps.filter(a => a.status === 'accepted');
     if (!accepted.length) { await showState(chatId, userId, 'No accepted applicants.'); return; }
-    let text = `✅ *Accepted applicants for "${job.title}"*\n\n`;
-    accepted.forEach(a => { text += `• *${a.workerName}* — ${getRatingStars(a.rating, a.ratingCount)}\n📱 ${a.workerPhone}\n\n`; });
+    let text = `✅ *Accepted applicants for "${escapeMarkdown(job.title)}"*\n\n`;
+    accepted.forEach(a => { text += `• *${escapeMarkdown(a.workerName)}* — ${getRatingStars(a.rating, a.ratingCount)}\n📱 ${a.workerPhone}\n\n`; });
     await showState(chatId, userId, text, { reply_markup: { inline_keyboard: [] } });
     return;
   }
@@ -1273,7 +1327,7 @@ bot.on('callback_query', async (query) => {
     const workerDoc = await db.collection('users').doc(String(wId)).get();
     const workerName = workerDoc.exists ? workerDoc.data().name : 'Worker';
     bot.sendMessage(wId,
-      `ℹ️ Unfortunately, someone else was selected for *${job.title}*.
+      `ℹ️ Unfortunately, someone else was selected for *${escapeMarkdown(job.title)}*.
 
 Keep hustling! 💪`,
       { parse_mode: 'Markdown' }
@@ -1319,7 +1373,7 @@ Keep hustling! 💪`,
 
     // Send confirmation request to worker
     bot.sendMessage(acceptedApp.workerId,
-      `✅ *Job Completion Request*\n\n*${job.posterName}* says the job *${job.title}* is done.\n\nDo you confirm?`,
+      `✅ *Job Completion Request*\n\n*${escapeMarkdown(job.posterName)}* says the job *${escapeMarkdown(job.title)}* is done.\n\nDo you confirm?`,
       { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [
         [{ text: "✅ Yes, it's done!", callback_data: `worker_confirm_done_${jobId}_${userId}` }],
         [{ text: '❌ Not yet', callback_data: `worker_decline_done_${jobId}_${userId}` }],
@@ -1327,7 +1381,7 @@ Keep hustling! 💪`,
     ).catch(() => {});
 
     showMenu(chatId, userId,
-      `✅ *Completion request sent!*\n\nWaiting for *${acceptedApp.workerName}* to confirm\. You'll both be asked to leave a review once confirmed\.`,
+      `✅ *Completion request sent!*\n\nWaiting for *${escapeMarkdown(acceptedApp.workerName)}* to confirm\. You'll both be asked to leave a review once confirmed\.`,
       { parse_mode: 'Markdown' }
     );
     return;
@@ -1362,7 +1416,7 @@ Keep hustling! 💪`,
     posterSession.draft.completionRole       = 'poster';
 
     showState(posterId, posterId,
-      `🎉 *${user.name} confirmed the job is done!*\n\n👋 How did *"${job.title}"* go?\n\nTell us in a few words — what was done, how it went. This closes the job and builds your reputation on Husssle 🌟`,
+      `🎉 *${escapeMarkdown(user.name)} confirmed the job is done!*\n\n👋 How did *"${escapeMarkdown(job.title)}"* go?\n\nTell us in a few words — what was done, how it went. This closes the job and builds your reputation on Husssle 🌟`,
       { reply_markup: { inline_keyboard: [[{ text: '❌ Cancel', callback_data: 'cancel' }]] } }
     ).then(m => { if (m) posterSession.draft.lastMsgId = m.message_id; }).catch(() => {});
 
@@ -1374,7 +1428,7 @@ Keep hustling! 💪`,
     workerSession.draft.completionRole       = 'worker';
 
     showState(chatId, userId,
-      `👋 How did *"${job.title}"* go?\n\nTell us in a few words — what was done, how it went. This closes the job and builds your reputation on Husssle 🌟`,
+      `👋 How did *"${escapeMarkdown(job.title)}"* go?\n\nTell us in a few words — what was done, how it went. This closes the job and builds your reputation on Husssle 🌟`,
       { reply_markup: { inline_keyboard: [[{ text: '❌ Cancel', callback_data: 'cancel' }]] } }
     ).then(m => { if (m) workerSession.draft.lastMsgId = m.message_id; }).catch(() => {});
     return;
@@ -1386,7 +1440,7 @@ Keep hustling! 💪`,
     const posterId = parseInt(parts[1]);
     const job = await getJob(jobId);
     bot.sendMessage(posterId,
-      `ℹ️ *${user.name}* says the job isn't done yet. Keep in touch! 💪`,
+      `ℹ️ *${escapeMarkdown(user.name)}* says the job isn't done yet. Keep in touch! 💪`,
       { parse_mode: 'Markdown' }
     ).catch(() => {});
     bot.sendMessage(chatId, `✅ Customer has been notified.`);
@@ -1470,6 +1524,28 @@ Keep hustling! 💪`,
       `⚠️ *Feedback required!*\n\n⭐ *${stars} star${stars > 1 ? 's' : ''}* selected!\n\n✍️ Now type your review below (min 10 characters):`,
       { chat_id: chatId, message_id: msgId, parse_mode: 'Markdown' }
     ).catch(() => {});
+    return;
+  }
+
+  if (data === 'confirm_phone_post') {
+    const s = getSession(userId);
+    const phone = s.draft.confirmedPhone;
+    if (!phone) { bot.sendMessage(chatId, '⚠️ Please type your phone number again.'); return; }
+    await updateUser(userId, { phone });
+    const pendingAccept = s.draft.pendingAccept;
+    clearSession(userId);
+    if (pendingAccept) {
+      acceptApplicant(chatId, userId, pendingAccept.jobId, pendingAccept.workerId);
+    } else {
+      startPostFlow(chatId, userId);
+    }
+    return;
+  }
+
+  if (data === 'change_phone_post') {
+    const s = getSession(userId);
+    s.step = 'collect_phone_for_post';
+    bot.sendMessage(chatId, '📱 Please type your phone number:', { reply_markup: { inline_keyboard: [[{ text: '❌ Cancel', callback_data: 'cancel' }]] } });
     return;
   }
 
@@ -1596,7 +1672,7 @@ Keep hustling! 💪`,
     if (hasUrgent) {
       text += `⚠️ *Needs your attention*\n`;
       urgentApplicants.forEach(({ job, count }) => {
-        text += `• ${count} applicant${count > 1 ? 's' : ''} waiting on *${job.title}*\n`;
+        text += `• ${count} applicant${count > 1 ? 's' : ''} waiting on *${escapeMarkdown(job.title)}*\n`;
       });
       pendingCompletions.forEach(req => {
         text += `• *${req.jobTitle}* — ${req.workerName} says it's done\. Confirm?\n`;
@@ -1639,7 +1715,7 @@ Keep hustling! 💪`,
     if (otherWorking.length > 0 || otherHiring.length > 0) {
       text += `🟡 *Also in progress*\n`;
       otherWorking.forEach(a => { text += `• 🔨 ${a.jobTitle} · KES ${a.jobPay}\n`; });
-      otherHiring.forEach(j => { text += `• 👀 ${j.title} · KES ${j.pay}\n`; });
+      otherHiring.forEach(j => { text += `• 👀 ${escapeMarkdown(j.title)} · KES ${j.pay}\n`; });
       text += '\n';
     }
 
@@ -1647,7 +1723,7 @@ Keep hustling! 💪`,
     if (pendingApps.length > 0 || openJobs.filter(j => !urgentApplicants.find(u => u.job.id === j.id)).length > 0) {
       text += `⚪ *Waiting*\n`;
       pendingApps.forEach(a => { text += `• Applied to *${a.jobTitle}* — waiting for response\n`; });
-      openJobs.filter(j => !urgentApplicants.find(u => u.job.id === j.id)).forEach(j => { text += `• *${j.title}* — open, no applicants yet\n`; });
+      openJobs.filter(j => !urgentApplicants.find(u => u.job.id === j.id)).forEach(j => { text += `• *${escapeMarkdown(j.title)}* — open, no applicants yet\n`; });
     }
 
     // Buttons
@@ -1704,7 +1780,7 @@ Keep hustling! 💪`,
     if (openJobs.length > 0) {
       text += '💼 *Your open jobs:*\n';
       openJobs.forEach(j => {
-        text += `• *${j.title}* · KES ${j.pay}\n`;
+        text += `• *${escapeMarkdown(j.title)}* · KES ${j.pay}\n`;
         buttons.push([{ text: `💼 ${j.title}`, callback_data: `manage_job_${j.id}` }]);
       });
       text += '\n';
@@ -1761,14 +1837,20 @@ bot.on('message', async (msg) => {
 
   if (s.step === 'collect_phone_for_post') {
     if (!text) { bot.sendMessage(chatId, '⚠️ Please type your phone number.'); return; }
-    await updateUser(userId, { phone: text });
-    const pendingAccept = s.draft.pendingAccept;
-    clearSession(userId);
-    if (pendingAccept) {
-      acceptApplicant(chatId, userId, pendingAccept.jobId, pendingAccept.workerId);
-    } else {
-      startPostFlow(chatId, userId);
-    }
+    s.draft.confirmedPhone = text.trim();
+    s.step = 'confirm_phone_for_post';
+    bot.sendMessage(chatId,
+      `📱 Your contact number:\n*${escapeMarkdown(s.draft.confirmedPhone)}*\n\nIs this correct?`,
+      { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [
+        [{ text: '✅ Yes, confirm', callback_data: 'confirm_phone_post' }],
+        [{ text: '✏️ Change it', callback_data: 'change_phone_post' }],
+      ]}}
+    );
+    return;
+  }
+
+  if (s.step === 'confirm_phone_for_post') {
+    // handled by callback buttons
     return;
   }
 
@@ -1794,7 +1876,7 @@ bot.on('message', async (msg) => {
     });
     // Notify poster
     await showState(posterId, posterId,
-      `🚪 *Leave Request*\n\n*${user.name}* wants to leave *${jobTitle}*\n\nReason: _${reason}_\n\nDo you approve?`,
+      `🚪 *Leave Request*\n\n*${escapeMarkdown(user.name)}* wants to leave *${escapeMarkdown(jobTitle)}*\n\nReason: _${reason}_\n\nDo you approve?`,
       { reply_markup: { inline_keyboard: [
         [{ text: '✅ Approve', callback_data: `approve_leave_${jobId}_${userId}` }],
         [{ text: '❌ Decline', callback_data: `decline_leave_${jobId}_${userId}` }],
@@ -1823,7 +1905,7 @@ bot.on('message', async (msg) => {
     await db.collection('jobs').doc(String(jobId)).update({ declineCount });
     // Notify worker with reason and manage button
     await showState(workerId, workerId,
-      `❌ *Not done yet*\n\n*${jobTitle}*\n\nYour customer says:\n_${reason}_\n\nKeep going! 💪`,
+      `❌ *Not done yet*\n\n*${escapeMarkdown(jobTitle)}*\n\nYour customer says:\n_${reason}_\n\nKeep going! 💪`,
       { reply_markup: { inline_keyboard: [
         [{ text: '🔧 Manage this job', callback_data: `worker_job_${jobId}` }],
       ]}}
@@ -1833,7 +1915,7 @@ bot.on('message', async (msg) => {
       const workerDoc = await db.collection('users').doc(String(workerId)).get();
       const workerName = workerDoc.exists ? workerDoc.data().name : 'Worker';
       bot.sendMessage(ADMIN_ID,
-        `🚨 *Dispute Alert*\n\nJob: *${jobTitle}*\nPoster: *${user.name}* (ID: ${userId})\nWorker: *${workerName}* (ID: ${workerId})\n\nThe poster has declined completion ${declineCount} times.\nReason this time: _${reason}_\n\nPlease review this situation.`,
+        `🚨 *Dispute Alert*\n\nJob: *${escapeMarkdown(jobTitle)}*\nPoster: *${escapeMarkdown(user.name)}* (ID: ${userId})\nWorker: *${workerName}* (ID: ${workerId})\n\nThe poster has declined completion ${declineCount} times.\nReason this time: _${reason}_\n\nPlease review this situation.`,
         { parse_mode: 'Markdown' }
       ).catch(() => {});
     }
@@ -1847,7 +1929,7 @@ bot.on('message', async (msg) => {
       return;
     }
     // Save comment, ask for stars
-    if (s.draft.lastMsgId) bot.editMessageReplyMarkup({ inline_keyboard: [] }, { chat_id: chatId, message_id: s.draft.lastMsgId }).catch(() => {});
+    if (s.draft.lastMsgId) bot.deleteMessage(chatId, s.draft.lastMsgId).catch(() => {});
     s.draft.completionComment = text;
     s.step = 'completion_review_stars';
 
@@ -1858,7 +1940,7 @@ bot.on('message', async (msg) => {
     const prefix = isWorker ? 'rate_poster' : 'rate_worker';
 
     const ratingMsg = await bot.sendMessage(chatId,
-      `✍️ *"${text}"*\n\nNow rate ${targetName}:`,
+      `✍️ *"${text}"*\n\nNow rate ${escapeMarkdown(targetName)}:`,
       { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[
         { text: '⭐1', callback_data: `${prefix}_${jobId}_${targetId}_1` },
         { text: '⭐2', callback_data: `${prefix}_${jobId}_${targetId}_2` },
@@ -1897,7 +1979,7 @@ bot.on('message', async (msg) => {
       ? `${reviewJobId}_${userId}_poster`
       : `${reviewJobId}_${userId}_worker`;
     await db.collection('pendingFeedback').doc(fbDocId).delete().catch(() => {});
-    if (s.draft.lastMsgId) bot.editMessageReplyMarkup({ inline_keyboard: [] }, { chat_id: chatId, message_id: s.draft.lastMsgId }).catch(() => {});
+    if (s.draft.lastMsgId) bot.deleteMessage(chatId, s.draft.lastMsgId).catch(() => {});
     clearSession(userId);
     showMenu(chatId, userId, `✅ *Review submitted!*\n\n⭐ ${reviewStars} star${reviewStars > 1 ? 's' : ''} — "${text}"\n\nThanks for the feedback! 🙏`);
     return;
@@ -1924,7 +2006,7 @@ bot.on('message', async (msg) => {
     }
     // Delete pending feedback doc
     await db.collection('pendingFeedback').doc(pendingFeedbackDocId).delete().catch(() => {});
-    if (s.draft.lastMsgId) bot.editMessageReplyMarkup({ inline_keyboard: [] }, { chat_id: chatId, message_id: s.draft.lastMsgId }).catch(() => {});
+    if (s.draft.lastMsgId) bot.deleteMessage(chatId, s.draft.lastMsgId).catch(() => {});
     clearSession(userId);
     bot.sendMessage(chatId, `✅ *Review submitted!* Thanks 🙏\n\n⭐ ${pendingFeedbackStars} star${pendingFeedbackStars > 1 ? 's' : ''} — "${text}"`, { parse_mode: 'Markdown' });
     // Continue with what they were trying to do
@@ -1949,7 +2031,7 @@ bot.on('message', async (msg) => {
       s2.draft.pendingFeedbackStars = null;
       s2.draft.afterFeedback = { action: 'post' };
       bot.sendMessage(chatId,
-        `⚠️ *Before you can post, you need to leave feedback!*\n\nJob: *${pendingFbCheck.jobTitle}*\n\nFirst, rate your experience (1-5 stars):`,
+        `⚠️ *Before you can post, you need to leave feedback!*\n\nJob: *${escapeMarkdown(pendingFbCheck.jobTitle)}*\n\nFirst, rate your experience (1-5 stars):`,
         { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[
           { text: '⭐1', callback_data: 'pending_fb_stars_1' },
           { text: '⭐2', callback_data: 'pending_fb_stars_2' },
@@ -1965,7 +2047,7 @@ bot.on('message', async (msg) => {
       bot.sendMessage(chatId, `⚠️ Your title contains inappropriate content. Please rephrase.`);
       return;
     }
-    if (s.draft.lastMsgId) bot.editMessageReplyMarkup({ inline_keyboard: [] }, { chat_id: chatId, message_id: s.draft.lastMsgId }).catch(() => {});
+    if (s.draft.lastMsgId) bot.deleteMessage(chatId, s.draft.lastMsgId).catch(() => {});
     s.draft.title = text;
     s.step = 'post_description';
     bot.sendMessage(chatId,
@@ -1982,7 +2064,7 @@ bot.on('message', async (msg) => {
       bot.sendMessage(chatId, `⚠️ Your description contains inappropriate content. Please rephrase.`);
       return;
     }
-    if (s.draft.lastMsgId) bot.editMessageReplyMarkup({ inline_keyboard: [] }, { chat_id: chatId, message_id: s.draft.lastMsgId }).catch(() => {});
+    if (s.draft.lastMsgId) bot.deleteMessage(chatId, s.draft.lastMsgId).catch(() => {});
     s.draft.description = text;
     s.step = 'post_pay';
     bot.sendMessage(chatId,
@@ -1996,7 +2078,7 @@ bot.on('message', async (msg) => {
     const pay = parseInt(text.replace(/[^0-9]/g, ''));
     if (!pay || pay < 1) { bot.sendMessage(chatId, '⚠️ Please enter a valid amount, e.g. 3000'); return; }
     if (pay > 10000000) { bot.sendMessage(chatId, '⚠️ Amount too high. Max is KES 10,000,000'); return; }
-    if (s.draft.lastMsgId) bot.editMessageReplyMarkup({ inline_keyboard: [] }, { chat_id: chatId, message_id: s.draft.lastMsgId }).catch(() => {});
+    if (s.draft.lastMsgId) bot.deleteMessage(chatId, s.draft.lastMsgId).catch(() => {});
     s.draft.pay = pay;
     s.step = 'post_location';
     bot.sendMessage(chatId,
@@ -2008,7 +2090,7 @@ bot.on('message', async (msg) => {
 
   if (s.step === 'post_location') {
     if (!text) { bot.sendMessage(chatId, '⚠️ Please type a location.'); return; }
-    if (s.draft.lastMsgId) bot.editMessageReplyMarkup({ inline_keyboard: [] }, { chat_id: chatId, message_id: s.draft.lastMsgId }).catch(() => {});
+    if (s.draft.lastMsgId) bot.deleteMessage(chatId, s.draft.lastMsgId).catch(() => {});
     s.draft.location = text;
     s.step = 'post_urgency';
     bot.sendMessage(chatId,
@@ -2096,12 +2178,12 @@ async function submitApplication(chatId, userId, user, jobId) {
 
   // Use showState so new application notifications replace old ones
   await showState(job.posterId, job.posterId,
-    `🔔 *New application on your hustle!*\n\nJob: *${job.title}*\nApplicant: ${user.name} — ${getRatingStars(user.rating, user.ratingCount)}\n\nTap to review:`,
+    `🔔 *New application on your hustle!*\n\nJob: *${escapeMarkdown(job.title)}*\nApplicant: ${escapeMarkdown(user.name)} — ${getRatingStars(user.rating, user.ratingCount)}\n\nTap to review:`,
     { reply_markup: { inline_keyboard: [[{ text: '👥 Review applicants', callback_data: `view_applicants_${jobId}` }]] } }
   ).catch(() => {});
 
   showMenu(chatId, userId,
-    `✅ *Application sent!*\n\n*${job.title}* · KES ${job.pay}\n\n${job.posterName} will review and get back to you\. Good luck! 🤞`
+    `✅ *Application sent!*\n\n*${escapeMarkdown(job.title)}* · KES ${job.pay}\n\n${escapeMarkdown(job.posterName)} will review and get back to you\. Good luck! 🤞`
   );
 }
 
@@ -2131,25 +2213,38 @@ async function publishJob(chatId, userId, user, draft) {
   await jobRef.set(job);
 
   bot.sendMessage(chatId,
-    `🎉 *Hustle posted!*\n\n*${job.title}*\nKES ${job.pay} · ${job.location}\n\nYour hustle is now live in the channel!`,
+    `🎉 *Hustle posted!*\n\n*${escapeMarkdown(job.title)}*\nKES ${job.pay} · ${escapeMarkdown(job.location)}\n\nYour hustle is now live in the channel!`,
     { parse_mode: 'Markdown' }
   );
 
   const caption  = await formatChannelPost(job);
   const applyUrl = `https://t.me/nbohussle_bot?start=apply_${jobId}`;
   const keyboard = { inline_keyboard: [[{ text: "✋ I'll do it!", url: applyUrl }]] };
+  const plainCaption = () => caption.replace(/[*_`[]/g, '');
 
   let channelMsg;
   if (job.photos.length === 0) {
-    channelMsg = await bot.sendMessage(CHANNEL_ID, caption, { parse_mode: 'Markdown', reply_markup: keyboard }).catch(e => console.log('Channel error:', e.message));
+    channelMsg = await bot.sendMessage(CHANNEL_ID, caption, { parse_mode: 'Markdown', reply_markup: keyboard })
+      .catch(async e => {
+        console.log('Channel error, retrying plain:', e.message);
+        return bot.sendMessage(CHANNEL_ID, plainCaption(), { reply_markup: keyboard }).catch(e2 => console.log('Channel error:', e2.message));
+      });
   } else if (job.photos.length === 1) {
-    channelMsg = await bot.sendPhoto(CHANNEL_ID, job.photos[0], { caption, parse_mode: 'Markdown', reply_markup: keyboard }).catch(e => console.log('Channel error:', e.message));
+    channelMsg = await bot.sendPhoto(CHANNEL_ID, job.photos[0], { caption, parse_mode: 'Markdown', reply_markup: keyboard })
+      .catch(async e => {
+        console.log('Channel error, retrying plain:', e.message);
+        return bot.sendPhoto(CHANNEL_ID, job.photos[0], { caption: plainCaption(), reply_markup: keyboard }).catch(e2 => console.log('Channel error:', e2.message));
+      });
   } else {
     const mediaGroup = job.photos.map((photoId, i) => ({
       type: 'photo', media: photoId,
       ...(i === 0 ? { caption, parse_mode: 'Markdown' } : {})
     }));
-    await bot.sendMediaGroup(CHANNEL_ID, mediaGroup).catch(e => console.log('Channel error:', e.message));
+    await bot.sendMediaGroup(CHANNEL_ID, mediaGroup).catch(async e => {
+      console.log('Channel error, retrying plain:', e.message);
+      const plainGroup = job.photos.map((photoId, i) => ({ type: 'photo', media: photoId, ...(i === 0 ? { caption: plainCaption() } : {}) }));
+      await bot.sendMediaGroup(CHANNEL_ID, plainGroup).catch(e2 => console.log('Channel error:', e2.message));
+    });
     channelMsg = await bot.sendMessage(CHANNEL_ID, `📎 ${job.title}`, { reply_markup: keyboard }).catch(e => console.log('Channel error:', e.message));
   }
 
@@ -2201,7 +2296,7 @@ async function showJobDetail(chatId, userId, jobId) {
     const stars = n => '⭐'.repeat(n) + '☆'.repeat(5 - n);
     reviewsText = '\n\n💬 *Recent reviews:*\n' + reviewsSnap.docs.map(d => {
       const r = d.data();
-      return `${stars(r.stars)} _"${r.comment}"_ — ${r.fromName}`;
+      return `${stars(r.stars)} _"${escapeMarkdown(r.comment)}"_ — ${escapeMarkdown(r.fromName)}`;
     }).join('\n');
   }
 
@@ -2218,12 +2313,12 @@ async function showJobDetail(chatId, userId, jobId) {
   const posterTotalSpent = posterDoc.exists ? (posterDoc.data().totalSpent || 0) : 0;
 
   const text =
-    `💼 *${job.title}*\n\n` +
-    `📝 ${job.description}\n\n` +
+    `💼 *${escapeMarkdown(job.title)}*\n\n` +
+    `📝 ${escapeMarkdown(job.description)}\n\n` +
     `💰 *KES ${job.pay}*\n` +
-    `📍 ${job.location}\n` +
+    `📍 ${escapeMarkdown(job.location)}\n` +
     `📌 ${getJobStatus(job.status)}\n` +
-    `👤 ${job.posterName} — ${getRatingStars(job.posterRating, job.posterRatingCount)}\n` +
+    `👤 ${escapeMarkdown(job.posterName)} — ${getRatingStars(job.posterRating, job.posterRatingCount)}\n` +
     (posterTotalSpent > 0 ? `💵 Has paid out KES ${posterTotalSpent.toLocaleString()} to workers\n` : '') +
     `👥 ${apps.length} applicant(s)` +
     reviewsText;
@@ -2254,7 +2349,7 @@ async function showManageJob(chatId, userId, jobId) {
   if (job.status !== 'done') buttons.push([{ text: '🗑️ Delete this job', callback_data: `delete_job_${jobId}` }]);
 
   await showState(chatId, userId,
-    `⚙️ *Manage: ${job.title}*\n\nStatus: ${getJobStatus(job.status)}\nApplicants: ${apps.length}\nPay: KES ${job.pay}`,
+    `⚙️ *Manage: ${escapeMarkdown(job.title)}*\n\nStatus: ${getJobStatus(job.status)}\nApplicants: ${apps.length}\nPay: KES ${job.pay}`,
     { reply_markup: { inline_keyboard: buttons } }
   );
 }
@@ -2272,12 +2367,12 @@ async function showApplicants(chatId, userId, jobId) {
   const accepted = apps.filter(a => a.status === 'accepted');
   const rejected = apps.filter(a => a.status === 'rejected');
 
-  let text = `👥 *Applicants for "${job.title}"* (${apps.length})\n\n`;
+  let text = `👥 *Applicants for "${escapeMarkdown(job.title)}"* (${apps.length})\n\n`;
 
   if (accepted.length) {
     text += `✅ *Accepted:*\n`;
     accepted.forEach(a => {
-      text += `• *${a.workerName}* — ${getRatingStars(a.rating, a.ratingCount)}\n📱 ${a.workerPhone}\n\n`;
+      text += `• *${escapeMarkdown(a.workerName)}* — ${getRatingStars(a.rating, a.ratingCount)}\n📱 ${a.workerPhone}\n\n`;
     });
   }
 
@@ -2304,7 +2399,7 @@ async function showApplicants(chatId, userId, jobId) {
         }).join(' · ');
       }
 
-      text += `${i+1}. *${a.workerName}* — ${getRatingStars(a.rating, a.ratingCount)}\n`;
+      text += `${i+1}. *${escapeMarkdown(a.workerName)}* — ${getRatingStars(a.rating, a.ratingCount)}\n`;
       text += `📱 ${a.workerPhone}\n`;
       text += `📅 Member since ${joinDate}\n`;
       text += `💰 Total earned: KES ${totalEarned.toLocaleString()}\n`;
@@ -2317,7 +2412,7 @@ async function showApplicants(chatId, userId, jobId) {
   if (rejected.length) {
     text += `\n❌ *Not selected (${rejected.length}):*\n`;
     rejected.forEach(a => {
-      text += `• *${a.workerName}* — ${getRatingStars(a.rating, a.ratingCount)}\n`;
+      text += `• *${escapeMarkdown(a.workerName)}* — ${getRatingStars(a.rating, a.ratingCount)}\n`;
     });
   }
 
@@ -2352,14 +2447,38 @@ async function acceptApplicant(chatId, posterId, jobId, workerId) {
   const poster = await db.collection('users').doc(String(posterId)).get();
   const posterData = poster.exists ? poster.data() : { name: 'Customer', phone: 'N/A' };
 
+  // Build chat buttons based on usernames
+  const workerDoc = await db.collection('users').doc(String(workerId)).get();
+  const workerData = workerDoc.exists ? workerDoc.data() : {};
+  const posterUsername = posterData.username || null;
+  const workerUsername = workerData.username || null;
+
+  // Notify poster — with button to open worker's DM
+  const workerChatUrl = workerUsername ? `https://t.me/${workerUsername}` : `tg://user?id=${workerId}`;
+  const posterButtons = [
+    [{ text: `💬 Message ${app.workerName}`, url: workerChatUrl }],
+    [{ text: '💼 Manage job', callback_data: `manage_job_${jobId}` }],
+  ];
+
   bot.sendMessage(chatId,
-    `✅ *You accepted ${app.workerName}!*\n\n📱 Their phone: *${app.workerPhone}*\n\nContact them to arrange the work. Once done, mark the job as Done.`,
-    { parse_mode: 'Markdown' }
+    `✅ *You accepted ${escapeMarkdown(app.workerName)}!*\n\n📱 Their phone: *${app.workerPhone}*\n` +
+    (workerUsername ? `💬 Telegram: @${workerUsername}\n` : '') +
+    `\nContact them to arrange the work. Once done, mark the job as Done.`,
+    { parse_mode: 'Markdown', reply_markup: { inline_keyboard: posterButtons } }
   );
 
+  // Notify worker — with button to open poster's DM
+  const posterChatUrl = posterUsername ? `https://t.me/${posterUsername}` : `tg://user?id=${posterId}`;
+  const workerButtons = [
+    [{ text: `💬 Message ${posterData.name}`, url: posterChatUrl }],
+    [{ text: '📬 My Work', callback_data: 'my_applications' }],
+  ];
+
   const workerMsg = await bot.sendMessage(workerId,
-    `━━━━━━━━━━━━━━━\n🚨 *YOU GOT THE HUSTLE!* 🚨\n━━━━━━━━━━━━━━━\n\n🔨 *${job.title}*\n💰 KES ${job.pay}\n📍 ${job.location}\n\n📱 Customer: *${posterData.name}*\nPhone: *${posterData.phone || 'N/A'}*\n\nThey will contact you to arrange. Good luck! 💪\n\n_Go to My Work to track this job_`,
-    { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '📬 My Work', callback_data: 'my_applications' }]] } }
+    `━━━━━━━━━━━━━━━\n🚨 *YOU GOT THE HUSTLE!* 🚨\n━━━━━━━━━━━━━━━\n\n🔨 *${escapeMarkdown(job.title)}*\n💰 KES ${job.pay}\n📍 ${escapeMarkdown(job.location)}\n\n📱 Customer: *${escapeMarkdown(posterData.name)}*\nPhone: *${posterData.phone || 'N/A'}*\n` +
+    (posterUsername ? `💬 Telegram: @${posterUsername}\n` : '') +
+    `\nThey will contact you to arrange. Good luck! 💪\n\n_Go to My Work to track this job_`,
+    { parse_mode: 'Markdown', reply_markup: { inline_keyboard: workerButtons } }
   ).catch(() => {});
 
   // Pin the message in the worker's chat
@@ -2373,7 +2492,7 @@ async function acceptApplicant(chatId, posterId, jobId, workerId) {
 
   apps.filter(a => a.workerId !== workerId).forEach(a => {
     bot.sendMessage(a.workerId,
-      `ℹ️ Unfortunately, someone else was selected for *${job.title}*.\n\nKeep hustling! 💪`,
+      `ℹ️ Unfortunately, someone else was selected for *${escapeMarkdown(job.title)}*.\n\nKeep hustling! 💪`,
       { parse_mode: 'Markdown' }
     ).catch(() => {});
   });
@@ -2571,7 +2690,7 @@ async function updateUserPin(userId, force = false) {
       pinText += `👀 *Being done for you*\n`;
       takenJobs.forEach(j => {
         const workerName = j.workerName || '';
-        pinText += `*${j.title}* · KES ${j.pay}\n`;
+        pinText += `*${escapeMarkdown(j.title)}* · KES ${j.pay}\n`;
         if (j.location)    pinText += `📍 ${j.location}\n`;
         if (workerName)    pinText += `👤 Worker: ${workerName}\n`;
         if (j.workerPhone) pinText += `📱 Reach them: ${j.workerPhone}\n`;
@@ -2656,10 +2775,10 @@ async function updateDoneChannelPost(job, acceptedApp) {
 
   const text =
     `✅ *HUSTLE COMPLETED!*\n\n` +
-    `🔨 *${job.title}* — ${job.location}\n\n` +
+    `🔨 *${escapeMarkdown(job.title)}* — ${escapeMarkdown(job.location)}\n\n` +
     `💰 KES ${job.pay} earned by *${workerName}*\n` +
     `${workerRatingDisplay}` + (workerCompletedJobs > 0 ? ` · ${workerCompletedJobs} jobs done` : '') + `\n\n` +
-    `👤 Posted by ${job.posterName}\n` +
+    `👤 Posted by ${escapeMarkdown(job.posterName)}\n` +
     `${posterRatingDisplay}\n` + (posterTotalSpent > 0 ? `💸 KES ${posterTotalSpent.toLocaleString()} · paid to real people in Nairobi\n` : '') +
     workerReviewText +
     posterReviewText +
@@ -2726,7 +2845,7 @@ async function cleanupExpiredJobs() {
         await doc.ref.delete();
         // Notify poster
         bot.sendMessage(job.posterId,
-          `⏰ *Job Expired*\n\nYour job *${job.title}* (KES ${job.pay}) has been automatically removed after 30 days with no worker found.\n\nFeel free to post it again if you still need help!`,
+          `⏰ *Job Expired*\n\nYour job *${escapeMarkdown(job.title)}* (KES ${job.pay}) has been automatically removed after 30 days with no worker found.\n\nFeel free to post it again if you still need help!`,
           { parse_mode: 'Markdown' }
         ).catch(() => {});
         console.log(`✅ Auto-expired open job: ${job.title}`);
@@ -2751,12 +2870,12 @@ async function cleanupExpiredJobs() {
         if (job.channelMsgId) await bot.deleteMessage(CHANNEL_ID, job.channelMsgId).catch(() => {});
         // Notify both sides
         bot.sendMessage(job.posterId,
-          `⏰ *Job Auto-Closed*\n\nYour job *${job.title}* has been automatically closed after 30 days. Please leave a review if you haven't already.`,
+          `⏰ *Job Auto-Closed*\n\nYour job *${escapeMarkdown(job.title)}* has been automatically closed after 30 days. Please leave a review if you haven't already.`,
           { parse_mode: 'Markdown' }
         ).catch(() => {});
         if (acceptedApp) {
           bot.sendMessage(acceptedApp.workerId,
-            `⏰ *Job Auto-Closed*\n\n*${job.title}* has been automatically closed after 30 days. Please leave a review if you haven't already.`,
+            `⏰ *Job Auto-Closed*\n\n*${escapeMarkdown(job.title)}* has been automatically closed after 30 days. Please leave a review if you haven't already.`,
             { parse_mode: 'Markdown' }
           ).catch(() => {});
           updateUserPin(acceptedApp.workerId, true).catch(() => {});
@@ -2816,7 +2935,7 @@ async function cleanupExpiredJobs() {
               bot.sendMessage(ADMIN_ID,
                 `⚠️ *Stuck channel post*
 
-Job: *${cp.jobTitle}*
+Job: *${escapeMarkdown(cp.jobTitle)}*
 Msg ID: ${cp.channelMsgId}
 
 Please delete manually from @husssleke.`,
@@ -2865,7 +2984,7 @@ Please delete manually from @husssleke.`,
             bot.sendMessage(ADMIN_ID,
               `⚠️ *Channel delete still failing*
 
-Job: *${job.title}*
+Job: *${escapeMarkdown(job.title)}*
 Msg ID: ${job.channelMsgId}
 Error: ${e.message}
 
@@ -2881,6 +3000,22 @@ May need manual deletion from @husssleke.`,
     console.error('cleanupExpiredJobs error:', e.stack || e.message);
   }
 }
+
+async function sendChannelWelcome() {
+  try {
+    const chat = await bot.getChat(CHANNEL_ID);
+    if (chat.pinned_message) return; // Already has a pinned message
+    const msg = await bot.sendMessage(CHANNEL_ID,
+      `🤖 *Welcome to Husssle Nairobi!*\n\nThe hustle marketplace for Nairobi.\nFind work or find someone to do the job. Simple.\n\n✅ New hustles are posted here automatically.\nTo apply — tap the button under the post.`,
+      { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '➕ Post a hustle', url: 'https://t.me/nbohussle_bot?start=post' }]] } }
+    );
+    await bot.pinChatMessage(CHANNEL_ID, msg.message_id, { disable_notification: true }).catch(() => {});
+    console.log('✅ Channel welcome message sent!');
+  } catch (e) {
+    console.error('Channel welcome error:', e.message);
+  }
+}
+sendChannelWelcome();
 
 console.log('🤖 Husssle bot is running with Firestore...');
 
