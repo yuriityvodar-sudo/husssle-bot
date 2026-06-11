@@ -1531,13 +1531,15 @@ Keep hustling! 💪`,
     s.draft.urgency = map[data] || '⏰ Flexible';
     s.draft.photos = [];
     s.step = 'post_photo';
-    // Update the wizard summary message (remove buttons)
+    // Delete the wizard summary message, resend updated at bottom
     if (s.draft.lastMsgId) {
-      bot.editMessageText(
-        `➕ *Post a Hustle*\n\n✅ *Title:* ${escapeMarkdown(s.draft.title)}\n✅ *Description:* ${escapeMarkdown(s.draft.description)}\n✅ *Pay:* KES ${s.draft.pay}\n✅ *Location:* ${escapeMarkdown(s.draft.location)}\n✅ *Deadline:* ${s.draft.urgency}`,
-        { chat_id: chatId, message_id: s.draft.lastMsgId, parse_mode: 'Markdown', reply_markup: { inline_keyboard: [] } }
-      ).catch(() => {});
+      bot.deleteMessage(chatId, s.draft.lastMsgId).catch(() => {});
+      s.draft.lastMsgId = null;
     }
+    bot.sendMessage(chatId,
+      `➕ *Post a Hustle*\n\n✅ *Title:* ${escapeMarkdown(s.draft.title)}\n✅ *Description:* ${escapeMarkdown(s.draft.description)}\n✅ *Pay:* KES ${s.draft.pay}\n✅ *Location:* ${escapeMarkdown(s.draft.location)}\n✅ *Deadline:* ${s.draft.urgency}`,
+      { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [] } }
+    ).catch(() => {});
     // Send separate photo prompt
     bot.sendMessage(chatId,
       `📷 *Send a photo or video of the job!*\n\nOne photo or one video — it will be shown on your post. Or tap *DONE* to post without media.`,
@@ -2207,14 +2209,8 @@ async function startPostFlow(chatId, userId) {
 
 function postWizardEdit(chatId, s, text, keyboard) {
   if (s.draft.lastMsgId) {
-    return bot.editMessageText(text, {
-      chat_id: chatId, message_id: s.draft.lastMsgId,
-      parse_mode: 'Markdown', reply_markup: keyboard
-    }).catch(() => {
-      // edit failed (e.g. message too old) — send new
-      return bot.sendMessage(chatId, text, { parse_mode: 'Markdown', reply_markup: keyboard })
-        .then(m => { s.draft.lastMsgId = m.message_id; });
-    });
+    bot.deleteMessage(chatId, s.draft.lastMsgId).catch(() => {});
+    s.draft.lastMsgId = null;
   }
   return bot.sendMessage(chatId, text, { parse_mode: 'Markdown', reply_markup: keyboard })
     .then(m => { s.draft.lastMsgId = m.message_id; });
