@@ -2241,7 +2241,7 @@ async function publishJob(chatId, userId, user, draft) {
       const plainGroup = job.photos.map((photoId, i) => ({ type: 'photo', media: photoId, ...(i === 0 ? { caption: plainCaption() } : {}) }));
       await bot.sendMediaGroup(CHANNEL_ID, plainGroup).catch(e2 => console.log('Channel error:', e2.message));
     });
-    channelMsg = await bot.sendMessage(CHANNEL_ID, `📎 ${job.title}`, { reply_markup: keyboard }).catch(e => console.log('Channel error:', e.message));
+    channelMsg = await bot.sendMessage(CHANNEL_ID, '⠀', { reply_markup: keyboard }).catch(e => console.log('Channel error:', e.message));
   }
 
   if (channelMsg) {
