@@ -3145,6 +3145,7 @@ process.on('uncaughtException', (err) => {
 
 // ─── Inline mode ──────────────────────────────────────────────────────────────
 bot.on('inline_query', async (query) => {
+  console.log(`[INLINE] query="${query.query}" user=${query.from.id}`);
   const text = (query.query || '').trim().toLowerCase();
   try {
     const snap = await db.collection('jobs')
