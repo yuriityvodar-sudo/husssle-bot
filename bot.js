@@ -720,34 +720,57 @@ bot.on('callback_query', async (query) => {
   }
 
   if (data.startsWith('confirm_admin_delete_')) {
-    if (userId !== ADMIN_ID) return;
+    if (userId !== ADMIN_ID) { console.log(`[ADMIN-DEL] ABORT — not admin (userId=${userId})`); return; }
     const jobId = data.replace('confirm_admin_delete_', '');
+    console.log(`[ADMIN-DEL] confirm tapped — jobId=${jobId}`);
     const job = await getJob(jobId);
-    if (!job) { bot.sendMessage(chatId, '❌ Job not found.'); return; }
-    if (job.channelMsgId) {
-      try {
-        await bot.deleteMessage(CHANNEL_ID, job.channelMsgId);
-      } catch (e) {
-        const alreadyGone = e.message && (e.message.includes('message to delete not found') || e.message.includes('MESSAGE_ID_INVALID'));
-        if (!alreadyGone) {
-          bot.sendMessage(chatId, `⚠️ Could not delete channel post (msgId: ${job.channelMsgId}). Please delete it manually from @husssleke.`).catch(() => {});
+    if (!job) { console.log(`[ADMIN-DEL] ABORT — job not found`); bot.sendMessage(chatId, '❌ Job not found.'); return; }
+    console.log(`[ADMIN-DEL] guard passed — status=${job.status}, channelMsgId=${job.channelMsgId}`);
+
+    try {
+      if (job.channelMsgId) {
+        console.log(`[ADMIN-DEL] attempting channel delete — msgId=${job.channelMsgId}`);
+        try {
+          await bot.deleteMessage(CHANNEL_ID, job.channelMsgId);
+          console.log(`[ADMIN-DEL] channel post deleted OK`);
+        } catch (e) {
+          const alreadyGone = e.message && (e.message.includes('message to delete not found') || e.message.includes('MESSAGE_ID_INVALID'));
+          if (alreadyGone) {
+            console.log(`[ADMIN-DEL] channel post already gone — ${e.message}`);
+          } else {
+            console.log(`[ADMIN-DEL] channel delete FAILED — ${e.message}`);
+            bot.sendMessage(chatId, `⚠️ Could not delete channel post (msgId: ${job.channelMsgId}). Please delete it manually from @husssleke.`).catch(() => {});
+          }
         }
+      } else {
+        console.log(`[ADMIN-DEL] no channelMsgId — skipping channel delete`);
       }
+
+      console.log(`[ADMIN-DEL] fetching applications...`);
+      const apps = await getJobApplications(jobId);
+      console.log(`[ADMIN-DEL] got ${apps.length} application(s)`);
+      const affectedUserIds = new Set([job.posterId]);
+      for (const app of apps) {
+        if (app.status === 'accepted') affectedUserIds.add(app.workerId);
+        await db.collection('applications').doc(app.docId).delete().catch(() => {});
+      }
+
+      console.log(`[ADMIN-DEL] deleting job doc from Firestore...`);
+      await db.collection('jobs').doc(String(jobId)).delete();
+      console.log(`[ADMIN-DEL] job doc deleted OK ✅`);
+      if (job.channelMsgId) await db.collection('channelPosts').doc(String(job.channelMsgId)).delete().catch(() => {});
+
+      // Clear pins for poster and accepted worker
+      for (const uid of affectedUserIds) {
+        await bot.unpinAllChatMessages(uid).catch(() => {});
+        await db.collection('users').doc(String(uid)).update({ pinnedMsgId: null }).catch(() => {});
+        updateUserPin(uid).catch(() => {});
+      }
+      showMenu(chatId, userId, `✅ Job *"${job.title}"* deleted.`);
+    } catch (e) {
+      console.log(`[ADMIN-DEL] EXCEPTION — ${e.stack || e.message}`);
+      bot.sendMessage(chatId, '❌ Something went wrong deleting that job. Please try again.');
     }
-    const apps = await getJobApplications(jobId);
-    const affectedUserIds = new Set([job.posterId]);
-    for (const app of apps) {
-      if (app.status === 'accepted') affectedUserIds.add(app.workerId);
-      await db.collection('applications').doc(app.docId).delete().catch(() => {});
-    }
-    await db.collection('jobs').doc(String(jobId)).delete();
-    // Clear pins for poster and accepted worker
-    for (const uid of affectedUserIds) {
-      await bot.unpinAllChatMessages(uid).catch(() => {});
-      await db.collection('users').doc(String(uid)).update({ pinnedMsgId: null }).catch(() => {});
-      updateUserPin(uid).catch(() => {});
-    }
-    showMenu(chatId, userId, `✅ Job *"${job.title}"* deleted.`);
     return;
   }
 
