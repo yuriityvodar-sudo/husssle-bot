@@ -806,12 +806,17 @@ bot.on('callback_query', async (query) => {
     if (userId !== ADMIN_ID) { console.log(`[ADMIN-DEL] ABORT — not admin (userId=${userId})`); return; }
     const jobId = data.replace('confirm_admin_delete_', '');
     console.log(`[ADMIN-DEL] confirm tapped — jobId=${jobId}`);
-    const job = await getJob(jobId);
-    if (!job) { console.log(`[ADMIN-DEL] ABORT — job not found`); bot.sendMessage(chatId, '❌ Job not found.'); return; }
-    console.log(`[ADMIN-DEL] guard passed — status=${job.status}, channelMsgId=${job.channelMsgId}`);
 
-    // Instant feedback — heavy work continues below
-    const progress = await bot.sendMessage(chatId, `🗑 Deleting *"${escapeMarkdown(job.title)}"*...`, { parse_mode: 'Markdown' }).catch(() => null);
+    // Instant feedback BEFORE any network calls
+    const progress = await bot.sendMessage(chatId, '🗑 Deleting...').catch(() => null);
+
+    const job = await getJob(jobId);
+    console.log(`[ADMIN-DEL] getJob returned — found=${!!job}`);
+    if (!job) {
+      if (progress) bot.editMessageText('❌ Job not found.', { chat_id: chatId, message_id: progress.message_id }).catch(() => {});
+      return;
+    }
+    console.log(`[ADMIN-DEL] guard passed — status=${job.status}, channelMsgId=${job.channelMsgId}`);
 
     try {
       const result = await deleteJobCompletely(job, 'ADMIN-DEL');
@@ -962,17 +967,22 @@ bot.on('callback_query', async (query) => {
   if (data.startsWith('confirm_delete_')) {
     const jobId = data.replace('confirm_delete_', '');
     console.log(`[DELETE] confirm_delete_ tapped — jobId=${jobId}, userId=${userId}`);
+
+    // Instant feedback BEFORE any network calls
+    const progress = await bot.sendMessage(chatId, '🗑 Deleting your job...').catch(() => null);
+
     const job = await getJob(jobId);
-    if (!job) { console.log(`[DELETE] confirm ABORT — job not found`); bot.sendMessage(chatId, '⚠️ Job not found.'); return; }
+    console.log(`[DELETE] getJob returned — found=${!!job}`);
+    if (!job) {
+      if (progress) bot.editMessageText('⚠️ Job not found.', { chat_id: chatId, message_id: progress.message_id }).catch(() => {});
+      return;
+    }
     if (job.posterId !== userId) {
       console.log(`[DELETE] confirm ABORT — posterId(${job.posterId}, ${typeof job.posterId}) !== userId(${userId}, ${typeof userId})`);
-      bot.sendMessage(chatId, '⚠️ Not your job.');
+      if (progress) bot.editMessageText('⚠️ Not your job.', { chat_id: chatId, message_id: progress.message_id }).catch(() => {});
       return;
     }
     console.log(`[DELETE] guard passed — status=${job.status}, channelMsgId=${job.channelMsgId}`);
-
-    // Instant feedback — heavy work continues below
-    const progress = await bot.sendMessage(chatId, '🗑 Deleting your job...').catch(() => null);
 
     try {
       // Notify accepted worker if job is taken
