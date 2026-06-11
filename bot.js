@@ -2093,29 +2093,35 @@ bot.on('message', async (msg) => {
 
   if (s.step === 'post_photo') {
     if (msg.photo) {
-      if (!s.draft.photos) s.draft.photos = [];
-      s.draft.photos.push(msg.photo[msg.photo.length - 1].file_id);
-      const count = s.draft.photos.length;
-      // Remove the original "Send photos / DONE" prompt once the first photo arrives
-      if (s.draft.photoPromptId) {
-        bot.deleteMessage(chatId, s.draft.photoPromptId).catch(() => {});
-        s.draft.photoPromptId = null;
-      }
-      if (count >= 5) {
-        if (s.draft.photoStatusId) { bot.deleteMessage(chatId, s.draft.photoStatusId).catch(() => {}); s.draft.photoStatusId = null; }
-        bot.sendMessage(chatId, `✅ 5 photos added! Posting your hustle now...`);
-        publishJob(chatId, userId, user, s.draft);
-        clearSession(userId);
-      } else {
-        const statusText = `✅ ${count} photo${count > 1 ? 's' : ''} added! Send another or post now:`;
-        const statusKb = { inline_keyboard: [[{ text: '🚀 Post it!', callback_data: 'post_photos_done' }]] };
-        if (s.draft.photoStatusId) {
-          // Update the single status message in place
-          bot.editMessageText(statusText, { chat_id: chatId, message_id: s.draft.photoStatusId, reply_markup: statusKb }).catch(() => {});
-        } else {
-          bot.sendMessage(chatId, statusText, { reply_markup: statusKb }).then(m => { s.draft.photoStatusId = m.message_id; });
+      // Serialize photo handling per user — album photos arrive simultaneously
+      s.photoChain = (s.photoChain || Promise.resolve()).then(async () => {
+        if (s.step !== 'post_photo') return; // already posted by a previous photo in the album
+        if (!s.draft.photos) s.draft.photos = [];
+        s.draft.photos.push(msg.photo[msg.photo.length - 1].file_id);
+        const count = s.draft.photos.length;
+        // Remove the original "Send photos / DONE" prompt once the first photo arrives
+        if (s.draft.photoPromptId) {
+          await bot.deleteMessage(chatId, s.draft.photoPromptId).catch(() => {});
+          s.draft.photoPromptId = null;
         }
-      }
+        if (count >= 5) {
+          if (s.draft.photoStatusId) { await bot.deleteMessage(chatId, s.draft.photoStatusId).catch(() => {}); s.draft.photoStatusId = null; }
+          await bot.sendMessage(chatId, `✅ 5 photos added! Posting your hustle now...`);
+          const draft = s.draft;
+          s.step = null; // stop any remaining album photos in this chain from re-publishing
+          clearSession(userId);
+          await publishJob(chatId, userId, user, draft);
+        } else {
+          const statusText = `✅ ${count} photo${count > 1 ? 's' : ''} added! Send another or post now:`;
+          const statusKb = { inline_keyboard: [[{ text: '🚀 Post it!', callback_data: 'post_photos_done' }]] };
+          if (s.draft.photoStatusId) {
+            await bot.editMessageText(statusText, { chat_id: chatId, message_id: s.draft.photoStatusId, reply_markup: statusKb }).catch(() => {});
+          } else {
+            const m = await bot.sendMessage(chatId, statusText, { reply_markup: statusKb });
+            s.draft.photoStatusId = m.message_id;
+          }
+        }
+      }).catch(e => console.log('photo chain error:', e.message));
     } else if (text.toLowerCase() === 'skip') {
       s.draft.photos = [];
       publishJob(chatId, userId, user, s.draft);
