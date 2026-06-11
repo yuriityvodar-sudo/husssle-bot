@@ -138,7 +138,7 @@ function generateHashtags(job) {
   return tags.join(' ');
 }
 
-const bot        = new TelegramBot(BOT_TOKEN, { polling: true });
+const bot        = new TelegramBot(BOT_TOKEN, { polling: { params: { allowed_updates: ['message', 'callback_query', 'inline_query'] } } });
 // Force-evict any other bot instance still polling with this token (fixes 409 Conflict)
 bot.deleteWebHook({ drop_pending_updates: true }).catch(() => {});
 
