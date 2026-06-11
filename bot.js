@@ -3013,6 +3013,13 @@ async function sendChannelWelcome() {
 }
 sendChannelWelcome();
 
+// Stop polling immediately when Railway replaces this deploy (prevents 409 fights)
+process.on('SIGTERM', async () => {
+  console.log('SIGTERM received — stopping polling...');
+  try { await bot.stopPolling(); } catch (e) {}
+  process.exit(0);
+});
+
 console.log('🤖 Husssle bot is running with Firestore...');
 
 // Set commands for regular users
