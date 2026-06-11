@@ -574,11 +574,13 @@ bot.on('callback_query', async (query) => {
 
   if (!checkRateLimit(userId, chatId)) return;
 
-  // getUser with 5s timeout — a slow database must not freeze every button
+  // getUser with short timeout — a slow database must not freeze every button
+  let userTimedOut = false;
   const user = await Promise.race([
     getUser(query.from),
-    new Promise(resolve => setTimeout(() => resolve(null), 5000)),
+    new Promise(resolve => setTimeout(() => { userTimedOut = true; resolve(null); }, 1500)),
   ]).catch(() => null) || { id: userId, name: query.from.first_name || 'User', banned: false };
+  if (userTimedOut) console.log(`[IN] getUser TIMEOUT — using fallback for ${data}`);
   console.log(`[IN] user loaded — routing ${data}`);
   if (user.banned && userId !== ADMIN_ID) {
     bot.sendMessage(chatId, '🚫 You have been banned from Husssle.\n\nIf you think this is a mistake, contact support.');
