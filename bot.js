@@ -30,6 +30,7 @@ const ADMIN_ID   = 889114803;
 const userActions = {}; // { userId: { count, firstAction, lastAction, blockedUntil } }
 
 function checkRateLimit(userId, chatId) {
+  if (userId === ADMIN_ID) return true; // admin is never rate-limited
   const now = Date.now();
   if (!userActions[userId]) {
     userActions[userId] = { count: 1, firstAction: now, lastAction: now, blockedUntil: 0 };
@@ -572,7 +573,7 @@ bot.on('callback_query', async (query) => {
     bot.editMessageReplyMarkup({ inline_keyboard: [] }, { chat_id: chatId, message_id: msgId }).catch(() => {});
   }
 
-  if (!checkRateLimit(userId, chatId)) return;
+  if (!checkRateLimit(userId, chatId)) { console.log(`[RATE] blocked — user=${userId}`); return; }
 
   // getUser with short timeout — a slow database must not freeze every button
   let userTimedOut = false;
