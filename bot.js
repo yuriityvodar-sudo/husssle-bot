@@ -2288,13 +2288,7 @@ async function publishJob(chatId, userId, user, draft) {
         return bot.sendPhoto(CHANNEL_ID, job.photos[0], { caption: plainCaption(), reply_markup: keyboard }).catch(e2 => console.log('Channel error:', e2.message));
       });
   } else {
-    // First photo carries caption + button (media groups can't have buttons)
-    channelMsg = await bot.sendPhoto(CHANNEL_ID, job.photos[0], { caption, parse_mode: 'Markdown', reply_markup: keyboard })
-      .catch(async e => {
-        console.log('Channel error, retrying plain:', e.message);
-        return bot.sendPhoto(CHANNEL_ID, job.photos[0], { caption: plainCaption(), reply_markup: keyboard }).catch(e2 => console.log('Channel error:', e2.message));
-      });
-    // Remaining photos follow beneath
+    // Extra photos go first; the captioned photo with the button lands right below them
     const rest = job.photos.slice(1);
     let extraMsgIds = [];
     if (rest.length === 1) {
@@ -2306,6 +2300,12 @@ async function publishJob(chatId, userId, user, draft) {
       if (ms) extraMsgIds = ms.map(m => m.message_id);
     }
     if (extraMsgIds.length) await jobRef.update({ extraChannelMsgIds: extraMsgIds }).catch(() => {});
+    // Main photo carries caption + button (media groups can't have buttons)
+    channelMsg = await bot.sendPhoto(CHANNEL_ID, job.photos[0], { caption, parse_mode: 'Markdown', reply_markup: keyboard })
+      .catch(async e => {
+        console.log('Channel error, retrying plain:', e.message);
+        return bot.sendPhoto(CHANNEL_ID, job.photos[0], { caption: plainCaption(), reply_markup: keyboard }).catch(e2 => console.log('Channel error:', e2.message));
+      });
   }
 
   if (channelMsg) {
