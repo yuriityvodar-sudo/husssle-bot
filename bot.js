@@ -351,8 +351,9 @@ async function deleteJobCompletely(job, logTag = 'DELETE') {
   const affectedUserIds = new Set([job.posterId]);
   for (const app of apps) {
     if (app.status === 'accepted') affectedUserIds.add(app.workerId);
-    await db.collection('applications').doc(app.docId).delete().catch(() => {});
   }
+  // Delete applications in parallel
+  await Promise.all(apps.map(app => db.collection('applications').doc(app.docId).delete().catch(() => {})));
 
   console.log(`[${logTag}] deleting job doc from Firestore...`);
   await db.collection('jobs').doc(String(jobId)).delete();
@@ -808,21 +809,26 @@ bot.on('callback_query', async (query) => {
     if (!job) { console.log(`[ADMIN-DEL] ABORT — job not found`); bot.sendMessage(chatId, '❌ Job not found.'); return; }
     console.log(`[ADMIN-DEL] guard passed — status=${job.status}, channelMsgId=${job.channelMsgId}`);
 
+    // Instant feedback — heavy work continues below
+    const progress = await bot.sendMessage(chatId, `🗑 Deleting *"${escapeMarkdown(job.title)}"*...`, { parse_mode: 'Markdown' }).catch(() => null);
+
     try {
       const result = await deleteJobCompletely(job, 'ADMIN-DEL');
       if (!result.channelDeleted) {
         bot.sendMessage(chatId, `⚠️ Could not delete channel post (msgId: ${job.channelMsgId}). Please delete it manually from @husssleke.`).catch(() => {});
       }
-      // Clear pins for poster and accepted worker
+      // Clear pins in the background — no need to make the admin wait
       for (const uid of result.affectedUserIds) {
-        await bot.unpinAllChatMessages(uid).catch(() => {});
-        await db.collection('users').doc(String(uid)).update({ pinnedMsgId: null }).catch(() => {});
+        bot.unpinAllChatMessages(uid).catch(() => {});
+        db.collection('users').doc(String(uid)).update({ pinnedMsgId: null }).catch(() => {});
         updateUserPin(uid).catch(() => {});
       }
-      showMenu(chatId, userId, `✅ Job *"${escapeMarkdown(job.title)}"* deleted.`);
+      if (progress) {
+        bot.editMessageText(`✅ Job *"${escapeMarkdown(job.title)}"* deleted.`, { chat_id: chatId, message_id: progress.message_id, parse_mode: 'Markdown' }).catch(() => {});
+      }
     } catch (e) {
       console.log(`[ADMIN-DEL] EXCEPTION — ${e.stack || e.message}`);
-      bot.sendMessage(chatId, '❌ Something went wrong deleting that job. Please try again.');
+      if (progress) bot.editMessageText('❌ Something went wrong deleting that job. Please try again.', { chat_id: chatId, message_id: progress.message_id }).catch(() => {});
     }
     return;
   }
@@ -964,6 +970,9 @@ bot.on('callback_query', async (query) => {
     }
     console.log(`[DELETE] guard passed — status=${job.status}, channelMsgId=${job.channelMsgId}`);
 
+    // Instant feedback — heavy work continues below
+    const progress = await bot.sendMessage(chatId, '🗑 Deleting your job...').catch(() => null);
+
     try {
       // Notify accepted worker if job is taken
       if (job.status === 'taken') {
@@ -982,10 +991,15 @@ bot.on('callback_query', async (query) => {
         '\n\n⚠️ Removed from the database, but I could not remove it from the channel — please delete it manually, and check that the bot is still an admin of the channel with delete permission.';
 
       updateUserPin(userId).catch(() => {});
-      bot.sendMessage(chatId, '✅ Job deleted successfully.' + channelWarning, { parse_mode: 'Markdown' });
+      if (progress) {
+        bot.editMessageText('✅ Job deleted successfully.' + channelWarning, { chat_id: chatId, message_id: progress.message_id, parse_mode: 'Markdown' }).catch(() => {});
+      } else {
+        bot.sendMessage(chatId, '✅ Job deleted successfully.' + channelWarning, { parse_mode: 'Markdown' });
+      }
     } catch (e) {
       console.log(`[DELETE] EXCEPTION — ${e.stack || e.message}`);
-      bot.sendMessage(chatId, '❌ Something went wrong deleting that job. Please try again.');
+      if (progress) bot.editMessageText('❌ Something went wrong deleting that job. Please try again.', { chat_id: chatId, message_id: progress.message_id }).catch(() => {});
+      else bot.sendMessage(chatId, '❌ Something went wrong deleting that job. Please try again.');
     }
     return;
   }
