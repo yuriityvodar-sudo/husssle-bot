@@ -1532,16 +1532,16 @@ Keep hustling! 💪`,
     s.draft.urgency = map[data] || '⏰ Flexible';
     s.draft.photos = [];
     s.step = 'post_photo';
-    // Delete the wizard summary message, resend updated at bottom
+    // Delete old wizard message, send updated summary, then photo prompt below it
     if (s.draft.lastMsgId) {
       bot.deleteMessage(chatId, s.draft.lastMsgId).catch(() => {});
       s.draft.lastMsgId = null;
     }
-    bot.sendMessage(chatId,
+    await bot.sendMessage(chatId,
       `➕ *Post a Hustle*\n\n✅ *Title:* ${escapeMarkdown(s.draft.title)}\n✅ *Description:* ${escapeMarkdown(s.draft.description)}\n✅ *Pay:* KES ${s.draft.pay}\n✅ *Location:* ${escapeMarkdown(s.draft.location)}\n✅ *Deadline:* ${s.draft.urgency}`,
-      { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [] } }
+      { parse_mode: 'Markdown' }
     ).catch(() => {});
-    // Send separate photo prompt
+    // Send photo prompt below
     bot.sendMessage(chatId,
       `📷 *Send a photo or video of the job!*\n\nOne photo or one video — it will be shown on your post. Or tap *DONE* to post without media.`,
       { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [
