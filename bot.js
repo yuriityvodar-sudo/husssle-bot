@@ -358,7 +358,21 @@ async function deleteJobCompletely(job, logTag = 'DELETE') {
   console.log(`[${logTag}] deleting job doc from Firestore...`);
   await db.collection('jobs').doc(String(jobId)).delete();
   console.log(`[${logTag}] job doc deleted OK ✅`);
-  if (job.channelMsgId) await db.collection('channelPosts').doc(String(job.channelMsgId)).delete().catch(() => {});
+  if (job.channelMsgId) {
+    if (channelDeleted) {
+      await db.collection('channelPosts').doc(String(job.channelMsgId)).delete().catch(() => {});
+    } else {
+      // Channel post still live — KEEP the tracking record so the 30-min safety net retries it
+      await db.collection('channelPosts').doc(String(job.channelMsgId)).set({
+        channelMsgId: job.channelMsgId,
+        jobId: String(jobId),
+        jobTitle: job.title,
+        channelDeleteFailed: true,
+        createdAt: Date.now(),
+      }, { merge: true }).catch(() => {});
+      console.log(`[${logTag}] channel post ORPHANED — safety net will retry within 30 min`);
+    }
+  }
 
   return { ok: true, channelDeleted, affectedUserIds };
 }
