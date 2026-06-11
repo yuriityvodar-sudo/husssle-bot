@@ -573,7 +573,8 @@ bot.on('callback_query', async (query) => {
     bot.editMessageReplyMarkup({ inline_keyboard: [] }, { chat_id: chatId, message_id: msgId }).catch(() => {});
   }
 
-  if (!checkRateLimit(userId, chatId)) { console.log(`[RATE] blocked — user=${userId}`); return; }
+  const rateExempt = data.startsWith('apply_') || data.startsWith('confirm_phone_apply_') || data.startsWith('consent_apply_') || data.startsWith('withdraw_application_') || data === 'browse' || data.startsWith('view_job_');
+  if (!rateExempt && !checkRateLimit(userId, chatId)) { console.log(`[RATE] blocked — user=${userId}`); return; }
 
   // getUser with short timeout — a slow database must not freeze every button
   let userTimedOut = false;
