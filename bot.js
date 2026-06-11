@@ -1532,7 +1532,7 @@ Keep hustling! 💪`,
     s.draft.photos = [];
     s.step = 'post_photo';
     bot.sendMessage(chatId,
-      `✅ *Availability:* ${s.draft.urgency}\n\n📷 *Send photos of the job!*\n\nYou can send up to 5 photos one by one. When done tap *DONE* to post.`,
+      `✅ *Availability:* ${s.draft.urgency}\n\n📷 *Send a photo or video of the job!*\n\nOne photo or one video — it will be shown on your post. Or tap *DONE* to post without media.`,
       { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [
         [{ text: '✅ DONE — post now', callback_data: 'post_photos_done' }],
         [{ text: '❌ Cancel',          callback_data: 'cancel' }],
@@ -2147,10 +2147,12 @@ bot.on('message', async (msg) => {
   }
 
   if (s.step === 'post_photo') {
-    if (msg.photo) {
+    if (msg.photo || msg.video) {
       if (!s.draft.photos) s.draft.photos = [];
-      if (s.draft.photos.length < 5) {
-        s.draft.photos.push(msg.photo[msg.photo.length - 1].file_id);
+      const already = s.draft.photos.length > 0 || s.draft.video;
+      if (!already) {
+        if (msg.video) s.draft.video = msg.video.file_id;
+        else s.draft.photos.push(msg.photo[msg.photo.length - 1].file_id);
       }
       // Wait until the album finishes arriving, then show ONE confirmation
       if (s.photoTimer) clearTimeout(s.photoTimer);
@@ -2161,7 +2163,9 @@ bot.on('message', async (msg) => {
           await bot.deleteMessage(chatId, s.draft.photoPromptId).catch(() => {});
           s.draft.photoPromptId = null;
         }
-        const statusText = `✅ ${count} photo${count > 1 ? 's' : ''} added${count >= 5 ? ' (max)' : ''}! Ready to post?`;
+        const what = s.draft.video ? 'Video' : 'Photo';
+        const extraNote = msg.media_group_id ? '\n\nℹ️ Only one photo or video is allowed per post — I kept the first one.' : '';
+        const statusText = `✅ ${what} added!${extraNote}\n\nReady to post?`;
         const statusKb = { inline_keyboard: [
           [{ text: '🚀 Post it!', callback_data: 'post_photos_done' }],
           [{ text: '❌ Cancel',   callback_data: 'cancel' }],
@@ -2250,6 +2254,7 @@ async function publishJob(chatId, userId, user, draft) {
     pay:              draft.pay,
     location:         draft.location,
     photos:           draft.photos || [],
+    video:            draft.video || null,
     posterId:         userId,
     posterName:       user.name,
     posterRating:      user.rating || 0,
@@ -2275,32 +2280,19 @@ async function publishJob(chatId, userId, user, draft) {
   const plainCaption = () => caption.replace(/[*_`[]/g, '');
 
   let channelMsg;
-  if (job.photos.length === 0) {
+  if (job.video) {
+    channelMsg = await bot.sendVideo(CHANNEL_ID, job.video, { caption, parse_mode: 'Markdown', reply_markup: keyboard })
+      .catch(async e => {
+        console.log('Channel error, retrying plain:', e.message);
+        return bot.sendVideo(CHANNEL_ID, job.video, { caption: plainCaption(), reply_markup: keyboard }).catch(e2 => console.log('Channel error:', e2.message));
+      });
+  } else if (job.photos.length === 0) {
     channelMsg = await bot.sendMessage(CHANNEL_ID, caption, { parse_mode: 'Markdown', reply_markup: keyboard })
       .catch(async e => {
         console.log('Channel error, retrying plain:', e.message);
         return bot.sendMessage(CHANNEL_ID, plainCaption(), { reply_markup: keyboard }).catch(e2 => console.log('Channel error:', e2.message));
       });
-  } else if (job.photos.length === 1) {
-    channelMsg = await bot.sendPhoto(CHANNEL_ID, job.photos[0], { caption, parse_mode: 'Markdown', reply_markup: keyboard })
-      .catch(async e => {
-        console.log('Channel error, retrying plain:', e.message);
-        return bot.sendPhoto(CHANNEL_ID, job.photos[0], { caption: plainCaption(), reply_markup: keyboard }).catch(e2 => console.log('Channel error:', e2.message));
-      });
   } else {
-    // Extra photos go first; the captioned photo with the button lands right below them
-    const rest = job.photos.slice(1);
-    let extraMsgIds = [];
-    if (rest.length === 1) {
-      const m = await bot.sendPhoto(CHANNEL_ID, rest[0]).catch(e => console.log('Channel error:', e.message));
-      if (m) extraMsgIds.push(m.message_id);
-    } else if (rest.length >= 2) {
-      const group = rest.map(p => ({ type: 'photo', media: p }));
-      const ms = await bot.sendMediaGroup(CHANNEL_ID, group).catch(e => { console.log('Channel error:', e.message); return null; });
-      if (ms) extraMsgIds = ms.map(m => m.message_id);
-    }
-    if (extraMsgIds.length) await jobRef.update({ extraChannelMsgIds: extraMsgIds }).catch(() => {});
-    // Main photo carries caption + button (media groups can't have buttons)
     channelMsg = await bot.sendPhoto(CHANNEL_ID, job.photos[0], { caption, parse_mode: 'Markdown', reply_markup: keyboard })
       .catch(async e => {
         console.log('Channel error, retrying plain:', e.message);
@@ -2779,7 +2771,7 @@ async function updateChannelPost(job) {
     ? { inline_keyboard: [[{ text: "✋ I'll do it!", url: applyUrl }]] }
     : { inline_keyboard: [] };
 
-  if (job.photos && job.photos.length >= 1) {
+  if (job.video || (job.photos && job.photos.length >= 1)) {
     bot.editMessageCaption(text, { chat_id: CHANNEL_ID, message_id: job.channelMsgId, parse_mode: 'Markdown', reply_markup: keyboard }).catch(() => {});
   } else {
     bot.editMessageText(text, { chat_id: CHANNEL_ID, message_id: job.channelMsgId, parse_mode: 'Markdown', reply_markup: keyboard }).catch(() => {});
@@ -2846,7 +2838,7 @@ async function updateDoneChannelPost(job, acceptedApp) {
     `\n\n🤝 Another hustle done in Nairobi!\n` +
     `⏳ Removed on ${deleteTime}`;
 
-  if (job.photos && job.photos.length >= 1) {
+  if (job.video || (job.photos && job.photos.length >= 1)) {
     bot.editMessageCaption(text, { chat_id: CHANNEL_ID, message_id: job.channelMsgId, parse_mode: 'Markdown' }).catch(() => {});
   } else {
     bot.editMessageText(text, { chat_id: CHANNEL_ID, message_id: job.channelMsgId, parse_mode: 'Markdown' }).catch(() => {});
