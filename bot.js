@@ -2517,12 +2517,13 @@ async function acceptApplicant(chatId, posterId, jobId, workerId) {
   job.status = 'taken';
   updateChannelPost(job);
 
-  const poster = await db.collection('users').doc(String(posterId)).get();
-  const posterData = poster.exists ? poster.data() : { name: 'Customer', phone: 'N/A' };
-
-  // Build chat buttons based on usernames
-  const workerDoc = await db.collection('users').doc(String(workerId)).get();
-  const workerData = workerDoc.exists ? workerDoc.data() : {};
+  const timeout = ms => new Promise(r => setTimeout(r, ms));
+  const [posterSnap, workerSnap] = await Promise.all([
+    Promise.race([db.collection('users').doc(String(posterId)).get(), timeout(3000).then(() => null)]),
+    Promise.race([db.collection('users').doc(String(workerId)).get(), timeout(3000).then(() => null)]),
+  ]);
+  const posterData = (posterSnap && posterSnap.exists) ? posterSnap.data() : { name: 'Customer', phone: 'N/A' };
+  const workerData = (workerSnap && workerSnap.exists) ? workerSnap.data() : {};
   const posterUsername = posterData.username || null;
   const workerUsername = workerData.username || null;
 
