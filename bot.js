@@ -1531,8 +1531,16 @@ Keep hustling! 💪`,
     s.draft.urgency = map[data] || '⏰ Flexible';
     s.draft.photos = [];
     s.step = 'post_photo';
+    // Update the wizard summary message (remove buttons)
+    if (s.draft.lastMsgId) {
+      bot.editMessageText(
+        `➕ *Post a Hustle*\n\n✅ *Title:* ${escapeMarkdown(s.draft.title)}\n✅ *Description:* ${escapeMarkdown(s.draft.description)}\n✅ *Pay:* KES ${s.draft.pay}\n✅ *Location:* ${escapeMarkdown(s.draft.location)}\n✅ *Deadline:* ${s.draft.urgency}`,
+        { chat_id: chatId, message_id: s.draft.lastMsgId, parse_mode: 'Markdown', reply_markup: { inline_keyboard: [] } }
+      ).catch(() => {});
+    }
+    // Send separate photo prompt
     bot.sendMessage(chatId,
-      `✅ *Availability:* ${s.draft.urgency}\n\n📷 *Send a photo or video of the job!*\n\nOne photo or one video — it will be shown on your post. Or tap *DONE* to post without media.`,
+      `📷 *Send a photo or video of the job!*\n\nOne photo or one video — it will be shown on your post. Or tap *DONE* to post without media.`,
       { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [
         [{ text: '✅ DONE — post now', callback_data: 'post_photos_done' }],
         [{ text: '❌ Cancel',          callback_data: 'cancel' }],
@@ -2088,13 +2096,12 @@ bot.on('message', async (msg) => {
       bot.sendMessage(chatId, `⚠️ Your title contains inappropriate content. Please rephrase.`);
       return;
     }
-    if (s.draft.lastMsgId) bot.deleteMessage(chatId, s.draft.lastMsgId).catch(() => {});
     s.draft.title = text;
     s.step = 'post_description';
-    bot.sendMessage(chatId,
-      `✅ *Title:* ${text}\n\nStep 2 of 4\n\n*Describe the job:*\n_What needs to be done? Any details?_`,
-      { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '❌ Cancel', callback_data: 'cancel' }]] } }
-    ).then(m => { s.draft.lastMsgId = m.message_id; });
+    postWizardEdit(chatId, s,
+      `➕ *Post a Hustle*\n\n✅ *Title:* ${escapeMarkdown(text)}\n\n*Step 2 of 4 — Describe the job:*\n_What needs to be done? Any details?_`,
+      { inline_keyboard: [[{ text: '❌ Cancel', callback_data: 'cancel' }]] }
+    );
     return;
   }
 
@@ -2105,13 +2112,12 @@ bot.on('message', async (msg) => {
       bot.sendMessage(chatId, `⚠️ Your description contains inappropriate content. Please rephrase.`);
       return;
     }
-    if (s.draft.lastMsgId) bot.deleteMessage(chatId, s.draft.lastMsgId).catch(() => {});
     s.draft.description = text;
     s.step = 'post_pay';
-    bot.sendMessage(chatId,
-      `✅ Got it.\n\nStep 3 of 4\n\n*How much are you paying? (KES)*\n_Just the number, e.g. 3000_`,
-      { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '❌ Cancel', callback_data: 'cancel' }]] } }
-    ).then(m => { s.draft.lastMsgId = m.message_id; });
+    postWizardEdit(chatId, s,
+      `➕ *Post a Hustle*\n\n✅ *Title:* ${escapeMarkdown(s.draft.title)}\n✅ *Description:* ${escapeMarkdown(text)}\n\n*Step 3 of 4 — How much are you paying? (KES)*\n_Just the number, e.g. 3000_`,
+      { inline_keyboard: [[{ text: '❌ Cancel', callback_data: 'cancel' }]] }
+    );
     return;
   }
 
@@ -2119,29 +2125,27 @@ bot.on('message', async (msg) => {
     const pay = parseInt(text.replace(/[^0-9]/g, ''));
     if (!pay || pay < 1) { bot.sendMessage(chatId, '⚠️ Please enter a valid amount, e.g. 3000'); return; }
     if (pay > 10000000) { bot.sendMessage(chatId, '⚠️ Amount too high. Max is KES 10,000,000'); return; }
-    if (s.draft.lastMsgId) bot.deleteMessage(chatId, s.draft.lastMsgId).catch(() => {});
     s.draft.pay = pay;
     s.step = 'post_location';
-    bot.sendMessage(chatId,
-      `✅ *Pay:* KES ${pay}\n\nStep 4 of 4\n\n*Where is the job? (location in Nairobi)*\n_e.g. Westlands, Karen, CBD_`,
-      { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '❌ Cancel', callback_data: 'cancel' }]] } }
-    ).then(m => { s.draft.lastMsgId = m.message_id; });
+    postWizardEdit(chatId, s,
+      `➕ *Post a Hustle*\n\n✅ *Title:* ${escapeMarkdown(s.draft.title)}\n✅ *Description:* ${escapeMarkdown(s.draft.description)}\n✅ *Pay:* KES ${pay}\n\n*Step 4 of 4 — Where is the job?*\n_e.g. Westlands, Karen, CBD_`,
+      { inline_keyboard: [[{ text: '❌ Cancel', callback_data: 'cancel' }]] }
+    );
     return;
   }
 
   if (s.step === 'post_location') {
     if (!text) { bot.sendMessage(chatId, '⚠️ Please type a location.'); return; }
-    if (s.draft.lastMsgId) bot.deleteMessage(chatId, s.draft.lastMsgId).catch(() => {});
     s.draft.location = text;
     s.step = 'post_urgency';
-    bot.sendMessage(chatId,
-      `✅ *Location:* ${text}\n\n📅 *When do you need this done?*`,
-      { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [
+    postWizardEdit(chatId, s,
+      `➕ *Post a Hustle*\n\n✅ *Title:* ${escapeMarkdown(s.draft.title)}\n✅ *Description:* ${escapeMarkdown(s.draft.description)}\n✅ *Pay:* KES ${s.draft.pay}\n✅ *Location:* ${escapeMarkdown(text)}\n\n📅 *When do you need this done?*`,
+      { inline_keyboard: [
         [{ text: '⚡ ASAP — today or tomorrow', callback_data: 'urgency_asap' }],
         [{ text: '📅 This week',                callback_data: 'urgency_week' }],
         [{ text: '🗓️ This month',               callback_data: 'urgency_month' }],
         [{ text: '⏰ Flexible — no rush',        callback_data: 'urgency_flexible' }],
-      ]}}
+      ]}
     );
     return;
   }
@@ -2195,10 +2199,25 @@ async function startPostFlow(chatId, userId) {
   s.step  = 'post_title';
   s.draft = {};
   const step1Msg = await bot.sendMessage(chatId,
-    '➕ *Post a Hustle*\n\nStep 1 of 4\n\n*What\'s the job title?*\n_e.g. Wall painting, Laptop repair, Catering_',
+    '➕ *Post a Hustle*\n\n*Step 1 of 4 — Job title:*\n_e.g. Wall painting, Laptop repair, Catering_',
     { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [[{ text: '❌ Cancel', callback_data: 'cancel' }]] } }
   );
   s.draft.lastMsgId = step1Msg.message_id;
+}
+
+function postWizardEdit(chatId, s, text, keyboard) {
+  if (s.draft.lastMsgId) {
+    return bot.editMessageText(text, {
+      chat_id: chatId, message_id: s.draft.lastMsgId,
+      parse_mode: 'Markdown', reply_markup: keyboard
+    }).catch(() => {
+      // edit failed (e.g. message too old) — send new
+      return bot.sendMessage(chatId, text, { parse_mode: 'Markdown', reply_markup: keyboard })
+        .then(m => { s.draft.lastMsgId = m.message_id; });
+    });
+  }
+  return bot.sendMessage(chatId, text, { parse_mode: 'Markdown', reply_markup: keyboard })
+    .then(m => { s.draft.lastMsgId = m.message_id; });
 }
 
 async function submitApplication(chatId, userId, user, jobId) {
