@@ -321,6 +321,47 @@ async function getJobApplications(jobId) {
   return snap.docs.map(d => ({ ...d.data(), docId: d.id }));
 }
 
+// Shared delete core — single source of truth for removing a job everywhere.
+// Handles: channel post, applications, job doc, channelPosts record.
+// Returns { ok, channelDeleted, affectedUserIds } — caller handles auth, notifications, pins, replies.
+async function deleteJobCompletely(job, logTag = 'DELETE') {
+  const jobId = job.id;
+  let channelDeleted = true;
+  if (job.channelMsgId) {
+    console.log(`[${logTag}] attempting channel delete — msgId=${job.channelMsgId}`);
+    try {
+      await bot.deleteMessage(CHANNEL_ID, job.channelMsgId);
+      console.log(`[${logTag}] channel post deleted OK`);
+    } catch (e) {
+      const alreadyGone = e.message && (e.message.includes('message to delete not found') || e.message.includes('MESSAGE_ID_INVALID'));
+      if (alreadyGone) {
+        console.log(`[${logTag}] channel post already gone — ${e.message}`);
+      } else {
+        console.log(`[${logTag}] channel delete FAILED — ${e.message}`);
+        channelDeleted = false;
+      }
+    }
+  } else {
+    console.log(`[${logTag}] no channelMsgId — skipping channel delete`);
+  }
+
+  console.log(`[${logTag}] fetching applications...`);
+  const apps = await getJobApplications(jobId);
+  console.log(`[${logTag}] got ${apps.length} application(s)`);
+  const affectedUserIds = new Set([job.posterId]);
+  for (const app of apps) {
+    if (app.status === 'accepted') affectedUserIds.add(app.workerId);
+    await db.collection('applications').doc(app.docId).delete().catch(() => {});
+  }
+
+  console.log(`[${logTag}] deleting job doc from Firestore...`);
+  await db.collection('jobs').doc(String(jobId)).delete();
+  console.log(`[${logTag}] job doc deleted OK ✅`);
+  if (job.channelMsgId) await db.collection('channelPosts').doc(String(job.channelMsgId)).delete().catch(() => {});
+
+  return { ok: true, channelDeleted, affectedUserIds };
+}
+
 // ─── /start ───────────────────────────────────────────────────────────────────
 bot.onText(/\/start(?:\s(.+))?/, async (msg, match) => {
   const user = await getUser(msg.from);
@@ -768,40 +809,12 @@ bot.on('callback_query', async (query) => {
     console.log(`[ADMIN-DEL] guard passed — status=${job.status}, channelMsgId=${job.channelMsgId}`);
 
     try {
-      if (job.channelMsgId) {
-        console.log(`[ADMIN-DEL] attempting channel delete — msgId=${job.channelMsgId}`);
-        try {
-          await bot.deleteMessage(CHANNEL_ID, job.channelMsgId);
-          console.log(`[ADMIN-DEL] channel post deleted OK`);
-        } catch (e) {
-          const alreadyGone = e.message && (e.message.includes('message to delete not found') || e.message.includes('MESSAGE_ID_INVALID'));
-          if (alreadyGone) {
-            console.log(`[ADMIN-DEL] channel post already gone — ${e.message}`);
-          } else {
-            console.log(`[ADMIN-DEL] channel delete FAILED — ${e.message}`);
-            bot.sendMessage(chatId, `⚠️ Could not delete channel post (msgId: ${job.channelMsgId}). Please delete it manually from @husssleke.`).catch(() => {});
-          }
-        }
-      } else {
-        console.log(`[ADMIN-DEL] no channelMsgId — skipping channel delete`);
+      const result = await deleteJobCompletely(job, 'ADMIN-DEL');
+      if (!result.channelDeleted) {
+        bot.sendMessage(chatId, `⚠️ Could not delete channel post (msgId: ${job.channelMsgId}). Please delete it manually from @husssleke.`).catch(() => {});
       }
-
-      console.log(`[ADMIN-DEL] fetching applications...`);
-      const apps = await getJobApplications(jobId);
-      console.log(`[ADMIN-DEL] got ${apps.length} application(s)`);
-      const affectedUserIds = new Set([job.posterId]);
-      for (const app of apps) {
-        if (app.status === 'accepted') affectedUserIds.add(app.workerId);
-        await db.collection('applications').doc(app.docId).delete().catch(() => {});
-      }
-
-      console.log(`[ADMIN-DEL] deleting job doc from Firestore...`);
-      await db.collection('jobs').doc(String(jobId)).delete();
-      console.log(`[ADMIN-DEL] job doc deleted OK ✅`);
-      if (job.channelMsgId) await db.collection('channelPosts').doc(String(job.channelMsgId)).delete().catch(() => {});
-
       // Clear pins for poster and accepted worker
-      for (const uid of affectedUserIds) {
+      for (const uid of result.affectedUserIds) {
         await bot.unpinAllChatMessages(uid).catch(() => {});
         await db.collection('users').doc(String(uid)).update({ pinnedMsgId: null }).catch(() => {});
         updateUserPin(uid).catch(() => {});
@@ -964,39 +977,9 @@ bot.on('callback_query', async (query) => {
         }
       }
 
-      // Delete channel message
-      let channelWarning = '';
-      if (job.channelMsgId) {
-        console.log(`[DELETE] attempting channel delete — msgId=${job.channelMsgId}`);
-        try {
-          await bot.deleteMessage(CHANNEL_ID, job.channelMsgId);
-          console.log(`[DELETE] channel post deleted OK`);
-        } catch (e) {
-          const alreadyGone = e.message && (e.message.includes('message to delete not found') || e.message.includes('MESSAGE_ID_INVALID'));
-          if (alreadyGone) {
-            console.log(`[DELETE] channel post already gone — ${e.message}`);
-          } else {
-            console.log(`[DELETE] channel delete FAILED — ${e.message}`);
-            channelWarning = '\n\n⚠️ Removed from the database, but I could not remove it from the channel — please delete it manually, and check that the bot is still an admin of the channel with delete permission.';
-          }
-        }
-      } else {
-        console.log(`[DELETE] no channelMsgId — skipping channel delete`);
-      }
-
-      // Delete all applications
-      console.log(`[DELETE] fetching applications...`);
-      const apps = await getJobApplications(jobId);
-      console.log(`[DELETE] got ${apps.length} application(s)`);
-      for (const app of apps) {
-        await db.collection('applications').doc(`${jobId}_${app.workerId}`).delete().catch(() => {});
-      }
-
-      // Delete job from Firebase
-      console.log(`[DELETE] deleting job doc from Firestore...`);
-      await db.collection('jobs').doc(String(jobId)).delete();
-      console.log(`[DELETE] job doc deleted OK ✅`);
-      if (job.channelMsgId) await db.collection('channelPosts').doc(String(job.channelMsgId)).delete().catch(() => {});
+      const result = await deleteJobCompletely(job, 'DELETE');
+      const channelWarning = result.channelDeleted ? '' :
+        '\n\n⚠️ Removed from the database, but I could not remove it from the channel — please delete it manually, and check that the bot is still an admin of the channel with delete permission.';
 
       updateUserPin(userId).catch(() => {});
       bot.sendMessage(chatId, '✅ Job deleted successfully.' + channelWarning, { parse_mode: 'Markdown' });
