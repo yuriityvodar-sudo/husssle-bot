@@ -104,6 +104,8 @@ function containsBannedWords(text) {
   return BANNED_WORDS.find(word => lower.includes(word)) || null;
 }
 const bot        = new TelegramBot(BOT_TOKEN, { polling: true });
+// Force-evict any other bot instance still polling with this token (fixes 409 Conflict)
+bot.deleteWebHook({ drop_pending_updates: true }).catch(() => {});
 
 // ─── In-memory session store (sessions don't need to persist) ─────────────────
 const sessions = {};
