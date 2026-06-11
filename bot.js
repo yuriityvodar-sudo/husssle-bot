@@ -1483,7 +1483,7 @@ Keep hustling! 💪`,
         [{ text: '✅ DONE — post now', callback_data: 'post_photos_done' }],
         [{ text: '❌ Cancel',          callback_data: 'cancel' }],
       ]}}
-    );
+    ).then(m => { s.draft.photoPromptId = m.message_id; });
     return;
   }
 
@@ -1491,6 +1491,9 @@ Keep hustling! 💪`,
     const s = getSession(userId);
     if (s.step !== 'post_photo') return;
     if (!s.draft.photos) s.draft.photos = [];
+    // Clear wizard buttons before posting
+    if (s.draft.photoPromptId) bot.deleteMessage(chatId, s.draft.photoPromptId).catch(() => {});
+    if (s.draft.photoStatusId) bot.deleteMessage(chatId, s.draft.photoStatusId).catch(() => {});
     publishJob(chatId, userId, user, s.draft);
     clearSession(userId);
     return;
@@ -2093,17 +2096,25 @@ bot.on('message', async (msg) => {
       if (!s.draft.photos) s.draft.photos = [];
       s.draft.photos.push(msg.photo[msg.photo.length - 1].file_id);
       const count = s.draft.photos.length;
+      // Remove the original "Send photos / DONE" prompt once the first photo arrives
+      if (s.draft.photoPromptId) {
+        bot.deleteMessage(chatId, s.draft.photoPromptId).catch(() => {});
+        s.draft.photoPromptId = null;
+      }
       if (count >= 5) {
+        if (s.draft.photoStatusId) { bot.deleteMessage(chatId, s.draft.photoStatusId).catch(() => {}); s.draft.photoStatusId = null; }
         bot.sendMessage(chatId, `✅ 5 photos added! Posting your hustle now...`);
         publishJob(chatId, userId, user, s.draft);
         clearSession(userId);
       } else {
-        bot.sendMessage(chatId,
-          `✅ Photo ${count} added! Send another or post now:`,
-          { reply_markup: { inline_keyboard: [
-            [{ text: '🚀 Post it!', callback_data: 'post_photos_done' }],
-          ]}}
-        );
+        const statusText = `✅ ${count} photo${count > 1 ? 's' : ''} added! Send another or post now:`;
+        const statusKb = { inline_keyboard: [[{ text: '🚀 Post it!', callback_data: 'post_photos_done' }]] };
+        if (s.draft.photoStatusId) {
+          // Update the single status message in place
+          bot.editMessageText(statusText, { chat_id: chatId, message_id: s.draft.photoStatusId, reply_markup: statusKb }).catch(() => {});
+        } else {
+          bot.sendMessage(chatId, statusText, { reply_markup: statusKb }).then(m => { s.draft.photoStatusId = m.message_id; });
+        }
       }
     } else if (text.toLowerCase() === 'skip') {
       s.draft.photos = [];
