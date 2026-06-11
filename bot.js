@@ -565,7 +565,7 @@ bot.on('callback_query', async (query) => {
   const data   = query.data;
   console.log(`[IN] tap: ${data} — user=${userId}`);
 
-  await bot.answerCallbackQuery(query.id).catch(() => {});
+  bot.answerCallbackQuery(query.id).catch(() => {});
 
   // Always clear buttons from the tapped message, except noop
   if (data !== 'noop' && data !== 'pin_live_now') {
@@ -574,7 +574,12 @@ bot.on('callback_query', async (query) => {
 
   if (!checkRateLimit(userId, chatId)) return;
 
-  const user = await getUser(query.from);
+  // getUser with 5s timeout — a slow database must not freeze every button
+  const user = await Promise.race([
+    getUser(query.from),
+    new Promise(resolve => setTimeout(() => resolve(null), 5000)),
+  ]).catch(() => null) || { id: userId, name: query.from.first_name || 'User', banned: false };
+  console.log(`[IN] user loaded — routing ${data}`);
   if (user.banned && userId !== ADMIN_ID) {
     bot.sendMessage(chatId, '🚫 You have been banned from Husssle.\n\nIf you think this is a mistake, contact support.');
     return;
