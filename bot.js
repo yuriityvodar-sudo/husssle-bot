@@ -2847,6 +2847,7 @@ async function updateDoneChannelPost(job, acceptedApp) {
 
 // ─── Cleanup expired done jobs ─────────────────────────────────────────────────
 async function cleanupExpiredJobs() {
+  console.log('🧹 cleanupExpiredJobs running...');
   try {
     const now = Date.now();
     const thirtyDaysAgo = now - (30 * 24 * 60 * 60 * 1000);
