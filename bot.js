@@ -542,6 +542,7 @@ bot.on('callback_query', async (query) => {
   const msgId  = query.message.message_id;
   const userId = query.from.id;
   const data   = query.data;
+  console.log(`[IN] tap: ${data} — user=${userId}`);
 
   await bot.answerCallbackQuery(query.id).catch(() => {});
 
@@ -1822,6 +1823,7 @@ bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
   const s      = getSession(userId);
   if (!s.step) return;
+  console.log(`[IN] msg: step=${s.step}, ${msg.photo ? 'photo' : 'text'} — user=${userId}`);
 
   const user = await getUser(msg.from);
   const text = msg.text ? msg.text.trim() : '';
@@ -2198,6 +2200,7 @@ async function submitApplication(chatId, userId, user, jobId) {
 }
 
 async function publishJob(chatId, userId, user, draft) {
+  console.log(`[POST] publishing — user=${userId}, title="${draft.title}", photos=${(draft.photos || []).length}`);
   const jobRef = db.collection('jobs').doc();
   const jobId  = jobRef.id;
 
@@ -2259,6 +2262,7 @@ async function publishJob(chatId, userId, user, draft) {
   }
 
   if (channelMsg) {
+    console.log(`[POST] channel post OK — msgId=${channelMsg.message_id}`);
     await jobRef.update({ channelMsgId: channelMsg.message_id });
     await db.collection('channelPosts').doc(String(channelMsg.message_id)).set({
       channelMsgId: channelMsg.message_id,
@@ -3033,6 +3037,9 @@ process.on('SIGTERM', async () => {
   try { await bot.stopPolling(); } catch (e) {}
   process.exit(0);
 });
+
+// Heartbeat — if these go missing in Railway logs, the log pipeline itself is dropping data
+setInterval(() => console.log(`[HB] alive ${new Date().toISOString()}`), 60 * 1000);
 
 console.log('🤖 Husssle bot is running with Firestore...');
 
