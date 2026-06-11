@@ -2213,6 +2213,7 @@ async function submitApplication(chatId, userId, user, jobId) {
     workerId:    userId,
     workerName:  user.name,
     workerPhone: user.phone,
+    workerUsername: user.username || null,
     rating:      user.rating || 0,
     ratingCount: user.ratingCount || 0,
     status:      'pending',
@@ -2469,10 +2470,14 @@ async function showApplicants(chatId, userId, jobId) {
     });
   }
 
-  const buttons = pending.flatMap(a => ([
-    [{ text: `✅ Accept ${a.workerName}`, callback_data: `accept_${jobId}_${a.workerId}` },
-     { text: `❌ Reject`, callback_data: `reject_${jobId}_${a.workerId}` }]
-  ]));
+  const buttons = pending.flatMap(a => {
+    const chatUrl = a.workerUsername ? `https://t.me/${a.workerUsername}` : `tg://user?id=${a.workerId}`;
+    return [
+      [{ text: `💬 Message ${a.workerName}`, url: chatUrl }],
+      [{ text: `✅ Accept ${a.workerName}`, callback_data: `accept_${jobId}_${a.workerId}` },
+       { text: `❌ Reject`, callback_data: `reject_${jobId}_${a.workerId}` }]
+    ];
+  });
   await showState(chatId, userId, text, { reply_markup: { inline_keyboard: buttons } });
 }
 
