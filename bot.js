@@ -2991,15 +2991,16 @@ async function cleanupExpiredJobs() {
             const alreadyGone = e.message && (e.message.includes('message to delete not found') || e.message.includes('MESSAGE_ID_INVALID'));
             if (!alreadyGone) {
               console.error(`❌ Safety net failed for "${cp.jobTitle}": ${e.message}`);
-              bot.sendMessage(ADMIN_ID,
-                `⚠️ *Stuck channel post*
-
-Job: *${escapeMarkdown(cp.jobTitle)}*
-Msg ID: ${cp.channelMsgId}
-
-Please delete manually from @husssleke.`,
-                { parse_mode: 'Markdown' }
-              ).catch(() => {});
+              // Only bug admin if post is recent enough to be deletable (48h rule)
+              const postAge = now - (cp.createdAt || 0);
+              if (postAge < 48 * 60 * 60 * 1000) {
+                bot.sendMessage(ADMIN_ID,
+                  `⚠️ *Stuck channel post*\n\nJob: *${escapeMarkdown(cp.jobTitle)}*\nMsg ID: ${cp.channelMsgId}\n\nPlease delete manually from @husssleke.`,
+                  { parse_mode: 'Markdown' }
+                ).catch(() => {});
+              } else {
+                console.log(`⏭ Skipping DM for old post "${cp.jobTitle}" — auto-delete will handle it`);
+              }
               continue;
             }
           }
@@ -3039,17 +3040,16 @@ Please delete manually from @husssleke.`,
             console.log(`✅ Channel post for "${job.title}" already gone — cleared flag`);
           } else {
             console.error(`❌ Retry failed for "${job.title}": ${e.message}`);
-            // Notify admin if it keeps failing
-            bot.sendMessage(ADMIN_ID,
-              `⚠️ *Channel delete still failing*
-
-Job: *${escapeMarkdown(job.title)}*
-Msg ID: ${job.channelMsgId}
-Error: ${e.message}
-
-May need manual deletion from @husssleke.`,
-              { parse_mode: 'Markdown' }
-            ).catch(() => {});
+            const postAge = now - (job.createdAt || 0);
+            if (postAge < 48 * 60 * 60 * 1000) {
+              bot.sendMessage(ADMIN_ID,
+                `⚠️ *Channel delete still failing*\n\nJob: *${escapeMarkdown(job.title)}*\nMsg ID: ${job.channelMsgId}\nError: ${e.message}\n\nMay need manual deletion from @husssleke.`,
+                { parse_mode: 'Markdown' }
+              ).catch(() => {});
+            } else {
+              console.log(`⏭ Skipping DM for old post "${job.title}" — auto-delete will handle it`);
+              await doc.ref.update({ channelDeleteFailed: false }).catch(() => {});
+            }
           }
         }
       }
