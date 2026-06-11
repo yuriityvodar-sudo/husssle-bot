@@ -3142,3 +3142,68 @@ process.on('unhandledRejection', (reason, promise) => {
 process.on('uncaughtException', (err) => {
   console.error('Uncaught Exception:', err.stack || err.message);
 });
+
+// ─── Inline mode ──────────────────────────────────────────────────────────────
+bot.on('inline_query', async (query) => {
+  const text = (query.query || '').trim().toLowerCase();
+  try {
+    const snap = await db.collection('jobs')
+      .where('status', '==', 'open')
+      .orderBy('createdAt', 'desc')
+      .limit(50)
+      .get();
+
+    let jobs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+    // Filter by search text if provided
+    if (text) {
+      jobs = jobs.filter(j =>
+        (j.title || '').toLowerCase().includes(text) ||
+        (j.location || '').toLowerCase().includes(text) ||
+        (j.description || '').toLowerCase().includes(text)
+      );
+    }
+
+    jobs = jobs.slice(0, 20); // Telegram max is 50, keep it clean
+
+    const results = jobs.map(j => {
+      const applyUrl = `https://t.me/nbohussle_bot?start=apply_${j.id}`;
+      const rating = j.posterRating && j.posterRatingCount
+        ? `⭐ ${(j.posterRating / j.posterRatingCount).toFixed(1)}`
+        : '⭐ New';
+      const urgency = j.urgency ? j.urgency.replace('⏰ Deadline: ', '').replace('⏰ ', '') : 'Flexible';
+
+      const messageText =
+        `🟢 *${escapeMarkdown(j.title)}*\n\n` +
+        `📝 ${escapeMarkdown(j.description || '')}\n\n` +
+        `💰 *KES ${j.pay}* · 📍 ${escapeMarkdown(j.location || '')} · ⏰ ${urgency}\n` +
+        `👤 ${escapeMarkdown(j.posterName || '')} — ${rating}`;
+
+      return {
+        type: 'article',
+        id: j.id,
+        title: j.title,
+        description: `KES ${j.pay} · ${j.location} · ${urgency}`,
+        thumb_url: 'https://husssle-app-cz-production.up.railway.app/favicon.ico',
+        input_message_content: {
+          message_text: messageText,
+          parse_mode: 'Markdown',
+        },
+        reply_markup: {
+          inline_keyboard: [[
+            { text: "✋ I'll do it!", url: applyUrl },
+            { text: '🔍 Find work', url: 'https://t.me/nbohussle_bot/hussslenbo' },
+          ]],
+        },
+      };
+    });
+
+    await bot.answerInlineQuery(query.id, results, {
+      cache_time: 30,
+      is_personal: false,
+    });
+  } catch (e) {
+    console.error('Inline query error:', e.message);
+    await bot.answerInlineQuery(query.id, [], { cache_time: 5 });
+  }
+});
