@@ -345,6 +345,13 @@ async function deleteJobCompletely(job, logTag = 'DELETE') {
     console.log(`[${logTag}] no channelMsgId — skipping channel delete`);
   }
 
+  // Delete extra photo messages (multi-photo posts)
+  if (job.extraChannelMsgIds && job.extraChannelMsgIds.length) {
+    for (const mid of job.extraChannelMsgIds) {
+      await bot.deleteMessage(CHANNEL_ID, mid).catch(() => {});
+    }
+  }
+
   console.log(`[${logTag}] fetching applications...`);
   const apps = await getJobApplications(jobId);
   console.log(`[${logTag}] got ${apps.length} application(s)`);
@@ -2273,16 +2280,24 @@ async function publishJob(chatId, userId, user, draft) {
         return bot.sendPhoto(CHANNEL_ID, job.photos[0], { caption: plainCaption(), reply_markup: keyboard }).catch(e2 => console.log('Channel error:', e2.message));
       });
   } else {
-    const mediaGroup = job.photos.map((photoId, i) => ({
-      type: 'photo', media: photoId,
-      ...(i === 0 ? { caption, parse_mode: 'Markdown' } : {})
-    }));
-    await bot.sendMediaGroup(CHANNEL_ID, mediaGroup).catch(async e => {
-      console.log('Channel error, retrying plain:', e.message);
-      const plainGroup = job.photos.map((photoId, i) => ({ type: 'photo', media: photoId, ...(i === 0 ? { caption: plainCaption() } : {}) }));
-      await bot.sendMediaGroup(CHANNEL_ID, plainGroup).catch(e2 => console.log('Channel error:', e2.message));
-    });
-    channelMsg = await bot.sendMessage(CHANNEL_ID, '⠀', { reply_markup: keyboard }).catch(e => console.log('Channel error:', e.message));
+    // First photo carries caption + button (media groups can't have buttons)
+    channelMsg = await bot.sendPhoto(CHANNEL_ID, job.photos[0], { caption, parse_mode: 'Markdown', reply_markup: keyboard })
+      .catch(async e => {
+        console.log('Channel error, retrying plain:', e.message);
+        return bot.sendPhoto(CHANNEL_ID, job.photos[0], { caption: plainCaption(), reply_markup: keyboard }).catch(e2 => console.log('Channel error:', e2.message));
+      });
+    // Remaining photos follow beneath
+    const rest = job.photos.slice(1);
+    let extraMsgIds = [];
+    if (rest.length === 1) {
+      const m = await bot.sendPhoto(CHANNEL_ID, rest[0]).catch(e => console.log('Channel error:', e.message));
+      if (m) extraMsgIds.push(m.message_id);
+    } else if (rest.length >= 2) {
+      const group = rest.map(p => ({ type: 'photo', media: p }));
+      const ms = await bot.sendMediaGroup(CHANNEL_ID, group).catch(e => { console.log('Channel error:', e.message); return null; });
+      if (ms) extraMsgIds = ms.map(m => m.message_id);
+    }
+    if (extraMsgIds.length) await jobRef.update({ extraChannelMsgIds: extraMsgIds }).catch(() => {});
   }
 
   if (channelMsg) {
@@ -2756,7 +2771,7 @@ async function updateChannelPost(job) {
     ? { inline_keyboard: [[{ text: "✋ I'll do it!", url: applyUrl }]] }
     : { inline_keyboard: [] };
 
-  if (job.photos && job.photos.length === 1) {
+  if (job.photos && job.photos.length >= 1) {
     bot.editMessageCaption(text, { chat_id: CHANNEL_ID, message_id: job.channelMsgId, parse_mode: 'Markdown', reply_markup: keyboard }).catch(() => {});
   } else {
     bot.editMessageText(text, { chat_id: CHANNEL_ID, message_id: job.channelMsgId, parse_mode: 'Markdown', reply_markup: keyboard }).catch(() => {});
@@ -2823,7 +2838,7 @@ async function updateDoneChannelPost(job, acceptedApp) {
     `\n\n🤝 Another hustle done in Nairobi!\n` +
     `⏳ Removed on ${deleteTime}`;
 
-  if (job.photos && job.photos.length === 1) {
+  if (job.photos && job.photos.length >= 1) {
     bot.editMessageCaption(text, { chat_id: CHANNEL_ID, message_id: job.channelMsgId, parse_mode: 'Markdown' }).catch(() => {});
   } else {
     bot.editMessageText(text, { chat_id: CHANNEL_ID, message_id: job.channelMsgId, parse_mode: 'Markdown' }).catch(() => {});
