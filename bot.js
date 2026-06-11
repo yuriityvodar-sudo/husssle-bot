@@ -183,7 +183,7 @@ async function formatChannelPost(job) {
     const stars = n => '⭐'.repeat(n) + '☆'.repeat(5 - n);
     reviewsText = '\n💬 *Recent reviews:*\n' + reviewsSnap.docs.map(d => {
       const r = d.data();
-      return `${stars(r.stars)} _"${escapeMarkdown(r.comment)}"_ — ${escapeMarkdown(r.fromName)}`;
+      return `${stars(r.stars)} "${escapeMarkdown(r.comment)}" — ${escapeMarkdown(r.fromName)}`;
     }).join('\n');
   }
 
@@ -2365,7 +2365,7 @@ async function showJobDetail(chatId, userId, jobId) {
     const stars = n => '⭐'.repeat(n) + '☆'.repeat(5 - n);
     reviewsText = '\n\n💬 *Recent reviews:*\n' + reviewsSnap.docs.map(d => {
       const r = d.data();
-      return `${stars(r.stars)} _"${escapeMarkdown(r.comment)}"_ — ${escapeMarkdown(r.fromName)}`;
+      return `${stars(r.stars)} "${escapeMarkdown(r.comment)}" — ${escapeMarkdown(r.fromName)}`;
     }).join('\n');
   }
 
@@ -2787,23 +2787,24 @@ async function updateUserPin(userId, force = false) {
 async function updateChannelPost(job) {
   if (!job.channelMsgId) return;
   const text = await formatChannelPost(job);
+  const plain = text.replace(/[*_`[]/g, '');
   const applyUrl = `https://t.me/nbohussle_bot?start=apply_${job.id}`;
   const keyboard = job.status === 'open'
     ? { inline_keyboard: [[{ text: "✋ I'll do it!", url: applyUrl }]] }
     : { inline_keyboard: [] };
 
-  if (job.video || (job.photos && job.photos.length >= 1)) {
-    bot.editMessageCaption(text, { chat_id: CHANNEL_ID, message_id: job.channelMsgId, parse_mode: 'Markdown', reply_markup: keyboard })
-      .catch(() => {
-        // Fallback: post may have been sent as text (old format)
-        bot.editMessageText(text, { chat_id: CHANNEL_ID, message_id: job.channelMsgId, parse_mode: 'Markdown', reply_markup: keyboard }).catch(() => {});
-      });
-  } else {
-    bot.editMessageText(text, { chat_id: CHANNEL_ID, message_id: job.channelMsgId, parse_mode: 'Markdown', reply_markup: keyboard })
-      .catch(() => {
-        bot.editMessageCaption(text, { chat_id: CHANNEL_ID, message_id: job.channelMsgId, parse_mode: 'Markdown', reply_markup: keyboard }).catch(() => {});
-      });
-  }
+  const tryEdit = (caption) => {
+    if (job.video || (job.photos && job.photos.length >= 1)) {
+      return bot.editMessageCaption(caption, { chat_id: CHANNEL_ID, message_id: job.channelMsgId, parse_mode: 'Markdown', reply_markup: keyboard })
+        .catch(() => bot.editMessageCaption(plain, { chat_id: CHANNEL_ID, message_id: job.channelMsgId, reply_markup: keyboard })
+          .catch(() => bot.editMessageText(plain, { chat_id: CHANNEL_ID, message_id: job.channelMsgId, reply_markup: keyboard }).catch(() => {})));
+    } else {
+      return bot.editMessageText(caption, { chat_id: CHANNEL_ID, message_id: job.channelMsgId, parse_mode: 'Markdown', reply_markup: keyboard })
+        .catch(() => bot.editMessageText(plain, { chat_id: CHANNEL_ID, message_id: job.channelMsgId, reply_markup: keyboard })
+          .catch(() => bot.editMessageCaption(plain, { chat_id: CHANNEL_ID, message_id: job.channelMsgId, reply_markup: keyboard }).catch(() => {})));
+    }
+  };
+  tryEdit(text);
 }
 
 // ─── Done channel post ────────────────────────────────────────────────────────
