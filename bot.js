@@ -1681,6 +1681,11 @@ Keep hustling! 💪`,
     const s = getSession(userId);
     if (s.step !== 'post_photo' && s.step !== 'post_photo_confirm') return;
     if (!s.draft.photos) s.draft.photos = [];
+    // "Post without media" explicitly discards any attached photo/video
+    if (data === 'post_skip_photo') {
+      s.draft.photos = [];
+      s.draft.video = null;
+    }
     // Clear wizard buttons before posting
     if (s.draft.photoPromptId) bot.deleteMessage(chatId, s.draft.photoPromptId).catch(() => {});
     if (s.draft.photoStatusId) bot.deleteMessage(chatId, s.draft.photoStatusId).catch(() => {});
