@@ -213,7 +213,7 @@ function mainMenu() {
     inline_keyboard: [
       [{ text: '🔴 Husssle Live 🔴', callback_data: 'live_now' }, { text: '➕ Post a hustle', callback_data: 'post_start' }],
       [{ text: '📬 My Applications', callback_data: 'my_applications' }, { text: '💼 Hustles I posted', callback_data: 'my_jobs' }],
-      [{ text: '⭐ Favourites', callback_data: 'my_favourites' }],
+      [{ text: '⭐ Favourites', callback_data: 'my_favourites' }, { text: '💬 Leave feedback', callback_data: 'leave_feedback' }],
     ]
   };
 }
@@ -605,6 +605,16 @@ bot.on('callback_query', async (query) => {
         [{ text: '⭐ My favourites', callback_data: 'my_favourites' }],
         [{ text: '← Menu', callback_data: 'menu_back' }],
       ]}}
+    );
+    return;
+  }
+
+  if (data === 'leave_feedback') {
+    const s = getSession(userId);
+    s.step = 'collect_feedback';
+    await showState(chatId, userId,
+      `💬 *Leave feedback*\n\nWrite your feedback, suggestion, or report a problem.\nWe'll review it and get back to you if needed.`,
+      { reply_markup: { inline_keyboard: [[{ text: '❌ Cancel', callback_data: 'cancel' }]] } }
     );
     return;
   }
@@ -1990,6 +2000,19 @@ bot.on('message', async (msg) => {
 
   const user = await getUser(msg.from);
   const text = msg.text ? msg.text.trim() : '';
+
+  if (s.step === 'collect_feedback') {
+    if (!text) return;
+    clearSession(userId);
+    // Forward to admin
+    bot.sendMessage(ADMIN_ID,
+      `💬 *New user feedback*\n\n👤 ${escapeMarkdown(user.name)} (@${user.username || 'no username'}, ID: ${userId})\n\n${escapeMarkdown(text)}`,
+      { parse_mode: 'Markdown' }
+    ).catch(() => {});
+    // Thank the user
+    showMenu(chatId, userId, `✅ *Thanks for your feedback!*\n\nThe admin will review it and get back to you if needed.`);
+    return;
+  }
 
   if (s.step === 'collect_phone') {
     if (!text) { bot.sendMessage(chatId, '⚠️ Please type your phone number.'); return; }
