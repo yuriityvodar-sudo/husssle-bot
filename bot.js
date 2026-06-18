@@ -1654,6 +1654,7 @@ Keep hustling! 💪`,
     };
     s.draft.urgency = map[data] || '⏰ Flexible';
     s.draft.photos = [];
+    s.draft.video = null;
     s.step = 'post_photo';
     // Delete old wizard message, send updated summary, then photo prompt below it
     if (s.draft.lastMsgId) {
@@ -1666,7 +1667,7 @@ Keep hustling! 💪`,
     ).catch(() => {});
     // Send photo prompt below
     bot.sendMessage(chatId,
-      `📷 *Send a photo or video of the job!*\n\nOne photo or one video — it will be shown on your post. Or tap *DONE* to post without media.`,
+      `📷 *Add a photo or video of the job!*\n\n_To attach — tap the 📎 (paperclip) next to the message box, pick one photo or one video, and send it._\n\nOr tap *DONE* to post without media.`,
       { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [
         [{ text: '✅ DONE — post now', callback_data: 'post_photos_done' }],
         [{ text: '❌ Cancel',          callback_data: 'cancel' }],
@@ -1677,13 +1678,42 @@ Keep hustling! 💪`,
 
   if (data === 'post_skip_photo' || data === 'post_photos_done') {
     const s = getSession(userId);
-    if (s.step !== 'post_photo') return;
+    if (s.step !== 'post_photo' && s.step !== 'post_photo_confirm') return;
     if (!s.draft.photos) s.draft.photos = [];
     // Clear wizard buttons before posting
     if (s.draft.photoPromptId) bot.deleteMessage(chatId, s.draft.photoPromptId).catch(() => {});
     if (s.draft.photoStatusId) bot.deleteMessage(chatId, s.draft.photoStatusId).catch(() => {});
+    if (s.draft.lastMsgId)     bot.deleteMessage(chatId, s.draft.lastMsgId).catch(() => {});
     publishJob(chatId, userId, user, s.draft);
     clearSession(userId);
+    return;
+  }
+
+  if (data === 'post_confirm_photo') {
+    const s = getSession(userId);
+    if (!s || !s.draft) return;
+    if (s.draft.lastMsgId) bot.deleteMessage(chatId, s.draft.lastMsgId).catch(() => {});
+    publishJob(chatId, userId, user, s.draft);
+    clearSession(userId);
+    return;
+  }
+
+  if (data === 'post_replace_photo') {
+    const s = getSession(userId);
+    if (!s || !s.draft) return;
+    // Clear stored media and re-prompt
+    s.draft.photos = [];
+    s.draft.video = null;
+    s.step = 'post_photo';
+    if (s.draft.lastMsgId) await bot.deleteMessage(chatId, s.draft.lastMsgId).catch(() => {});
+    const m = await bot.sendMessage(chatId,
+      `📷 *Send the new photo or video.*\n\n_Tap the 📎 (paperclip), pick one photo or one video, and send it._\n\nOr tap *DONE* to post without media.`,
+      { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [
+        [{ text: '✅ DONE — post now', callback_data: 'post_photos_done' }],
+        [{ text: '❌ Cancel',          callback_data: 'cancel' }],
+      ]}}
+    ).catch(() => null);
+    if (m) s.draft.photoPromptId = m.message_id;
     return;
   }
 
@@ -2292,40 +2322,74 @@ bot.on('message', async (msg) => {
   if (s.step === 'post_photo') {
     if (msg.photo || msg.video) {
       if (!s.draft.photos) s.draft.photos = [];
-      const already = s.draft.photos.length > 0 || s.draft.video;
-      if (!already) {
-        if (msg.video) s.draft.video = msg.video.file_id;
-        else s.draft.photos.push(msg.photo[msg.photo.length - 1].file_id);
+      // Newest-wins: a new photo/video replaces whatever was stored.
+      // (Albums: each item lands here; last one in the group wins.)
+      if (msg.video) {
+        s.draft.video = msg.video.file_id;
+        s.draft.photos = [];
+      } else {
+        s.draft.photos = [msg.photo[msg.photo.length - 1].file_id];
+        s.draft.video = null;
       }
       // Wait until the album finishes arriving, then show ONE confirmation
       if (s.photoTimer) clearTimeout(s.photoTimer);
+      const isAlbum = !!msg.media_group_id;
       s.photoTimer = setTimeout(async () => {
         if (s.step !== 'post_photo') return;
-        const count = s.draft.photos.length;
+        s.step = 'post_photo_confirm';
         if (s.draft.photoPromptId) {
           await bot.deleteMessage(chatId, s.draft.photoPromptId).catch(() => {});
           s.draft.photoPromptId = null;
         }
         const what = s.draft.video ? 'Video' : 'Photo';
-        const extraNote = msg.media_group_id ? '\n\nℹ️ Only one photo or video is allowed per post — I kept the first one.' : '';
-        const statusText = `✅ ${what} added!${extraNote}\n\nReady to post?`;
+        const extraNote = isAlbum ? '\n\nℹ️ Only one photo or video is allowed per post — I kept the last one.' : '';
+        const statusText =
+          `➕ *Post a Hustle*\n\n` +
+          `✅ *Title:* ${escapeMarkdown(s.draft.title)}\n` +
+          `✅ *Pay:* KES ${s.draft.pay}\n` +
+          `✅ *Location:* ${escapeMarkdown(s.draft.location)}\n\n` +
+          `✅ ${what} added!${extraNote}\n\nPublish with this ${what.toLowerCase()}, or replace it?`;
         const statusKb = { inline_keyboard: [
-          [{ text: '🚀 Post it!', callback_data: 'post_photos_done' }],
-          [{ text: '❌ Cancel',   callback_data: 'cancel' }],
+          [{ text: `✅ Publish with this ${what.toLowerCase()}`, callback_data: 'post_confirm_photo' }],
+          [{ text: `🔄 Replace ${what.toLowerCase()}`,          callback_data: 'post_replace_photo' }],
+          [{ text: '❌ Post without media',                     callback_data: 'post_skip_photo' }],
         ]};
-        if (s.draft.photoStatusId) {
-          await bot.editMessageText(statusText, { chat_id: chatId, message_id: s.draft.photoStatusId, reply_markup: statusKb }).catch(() => {});
-        } else {
-          const m = await bot.sendMessage(chatId, statusText, { reply_markup: statusKb }).catch(() => null);
-          if (m) s.draft.photoStatusId = m.message_id;
-        }
+        const m = await bot.sendMessage(chatId, statusText, { parse_mode: 'Markdown', reply_markup: statusKb }).catch(() => null);
+        if (m) s.draft.lastMsgId = m.message_id;
       }, 1000);
-    } else if (text.toLowerCase() === 'skip') {
+    } else if (text && text.toLowerCase() === 'skip') {
       s.draft.photos = [];
+      s.draft.video = null;
       publishJob(chatId, userId, user, s.draft);
       clearSession(userId);
     } else {
-      bot.sendMessage(chatId, '⚠️ Please send a photo or tap DONE to post.');
+      bot.sendMessage(chatId, '⚠️ Send one photo or one video, or tap DONE to post without media.');
+    }
+    return;
+  }
+
+  if (s.step === 'post_photo_confirm') {
+    if (msg.photo || msg.video) {
+      // User sent new media at the confirm screen — treat as replace (newest wins)
+      if (msg.video) { s.draft.video = msg.video.file_id; s.draft.photos = []; }
+      else { s.draft.photos = [msg.photo[msg.photo.length - 1].file_id]; s.draft.video = null; }
+      if (s.draft.lastMsgId) await bot.deleteMessage(chatId, s.draft.lastMsgId).catch(() => {});
+      const what = s.draft.video ? 'Video' : 'Photo';
+      const statusText =
+        `➕ *Post a Hustle*\n\n` +
+        `✅ *Title:* ${escapeMarkdown(s.draft.title)}\n` +
+        `✅ *Pay:* KES ${s.draft.pay}\n` +
+        `✅ *Location:* ${escapeMarkdown(s.draft.location)}\n\n` +
+        `✅ ${what} updated!\n\nPublish with this ${what.toLowerCase()}, or replace it?`;
+      const statusKb = { inline_keyboard: [
+        [{ text: `✅ Publish with this ${what.toLowerCase()}`, callback_data: 'post_confirm_photo' }],
+        [{ text: `🔄 Replace ${what.toLowerCase()}`,          callback_data: 'post_replace_photo' }],
+        [{ text: '❌ Post without media',                     callback_data: 'post_skip_photo' }],
+      ]};
+      const m = await bot.sendMessage(chatId, statusText, { parse_mode: 'Markdown', reply_markup: statusKb }).catch(() => null);
+      if (m) s.draft.lastMsgId = m.message_id;
+    } else {
+      bot.sendMessage(chatId, '⚠️ Tap one of the buttons above, or send a new photo/video to replace it.');
     }
     return;
   }
