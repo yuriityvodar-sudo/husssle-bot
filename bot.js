@@ -213,6 +213,7 @@ function mainMenu() {
     inline_keyboard: [
       [{ text: '🔴 Husssle Live 🔴', callback_data: 'live_now' }, { text: '➕ Post a hustle', callback_data: 'post_start' }],
       [{ text: '📬 My Applications', callback_data: 'my_applications' }, { text: '💼 Hustles I posted', callback_data: 'my_jobs' }],
+      [{ text: '⭐ Favourites', callback_data: 'my_favourites' }],
     ]
   };
 }
@@ -590,6 +591,75 @@ bot.on('callback_query', async (query) => {
   }
 
   if (data === 'browse') { showJobList(chatId); return; }
+
+  if (data.startsWith('fav_add_')) {
+    const jobId = data.replace('fav_add_', '');
+    const job = await getJob(jobId);
+    if (!job || job.status !== 'open') { bot.sendMessage(chatId, '⚠️ This hustle is no longer available.'); return; }
+    await db.collection('favourites').doc(`${userId}_${jobId}`).set({
+      userId, jobId, title: job.title, pay: job.pay, location: job.location,
+      posterName: job.posterName, addedAt: Date.now()
+    });
+    bot.sendMessage(chatId, `⭐ *${escapeMarkdown(job.title)}* added to favourites!\n\nYou can view your saved hustles from the menu.`,
+      { parse_mode: 'Markdown', reply_markup: { inline_keyboard: [
+        [{ text: '⭐ My favourites', callback_data: 'my_favourites' }],
+        [{ text: '← Menu', callback_data: 'menu_back' }],
+      ]}}
+    );
+    return;
+  }
+
+  if (data === 'my_favourites') {
+    const snap = await db.collection('favourites').where('userId', '==', userId).orderBy('addedAt', 'desc').get();
+    if (snap.empty) {
+      await showState(chatId, userId, `⭐ *Favourite hustles*\n\nYou have no saved hustles yet.\n\nTap ⭐ Favourite on any hustle to save it here.`,
+        { reply_markup: { inline_keyboard: [[{ text: '← Menu', callback_data: 'menu_back' }]] }}
+      );
+      return;
+    }
+    const buttons = [];
+    let text = `⭐ *Favourite hustles*\n\n`;
+    for (const doc of snap.docs) {
+      const fav = doc.data();
+      const job = await getJob(fav.jobId);
+      if (!job || job.status !== 'open') { await doc.ref.delete(); continue; }
+      text += `💼 *${escapeMarkdown(job.title)}* — KES ${job.pay}\n📍 ${escapeMarkdown(job.location)}\n\n`;
+      buttons.push([{ text: `💼 ${job.title} — KES ${job.pay}`, callback_data: `view_job_${fav.jobId}` }]);
+      buttons.push([{ text: `✋ Apply`, callback_data: `apply_${fav.jobId}` }, { text: `🗑️ Remove`, callback_data: `fav_remove_${fav.jobId}` }]);
+    }
+    if (!buttons.length) {
+      text = `⭐ *Favourite hustles*\n\nAll your saved hustles are no longer available.`;
+    }
+    buttons.push([{ text: '← Menu', callback_data: 'menu_back' }]);
+    await showState(chatId, userId, text, { reply_markup: { inline_keyboard: buttons } });
+    return;
+  }
+
+  if (data.startsWith('fav_remove_')) {
+    const jobId = data.replace('fav_remove_', '');
+    await db.collection('favourites').doc(`${userId}_${jobId}`).delete().catch(() => {});
+    bot.answerCallbackQuery(query.id, { text: '🗑️ Removed from favourites' }).catch(() => {});
+    const snap = await db.collection('favourites').where('userId', '==', userId).orderBy('addedAt', 'desc').get();
+    if (snap.empty) {
+      await showState(chatId, userId, `⭐ *Favourite hustles*\n\nYour list is empty.`,
+        { reply_markup: { inline_keyboard: [[{ text: '← Menu', callback_data: 'menu_back' }]] }}
+      );
+      return;
+    }
+    const buttons = [];
+    let text = `⭐ *Favourite hustles*\n\n`;
+    for (const doc of snap.docs) {
+      const fav = doc.data();
+      const job = await getJob(fav.jobId);
+      if (!job || job.status !== 'open') { await doc.ref.delete(); continue; }
+      text += `💼 *${escapeMarkdown(job.title)}* — KES ${job.pay}\n📍 ${escapeMarkdown(job.location)}\n\n`;
+      buttons.push([{ text: `💼 ${job.title} — KES ${job.pay}`, callback_data: `view_job_${fav.jobId}` }]);
+      buttons.push([{ text: `✋ Apply`, callback_data: `apply_${fav.jobId}` }, { text: `🗑️ Remove`, callback_data: `fav_remove_${fav.jobId}` }]);
+    }
+    buttons.push([{ text: '← Menu', callback_data: 'menu_back' }]);
+    await showState(chatId, userId, text || `⭐ *Favourite hustles*\n\nYour list is empty.`, { reply_markup: { inline_keyboard: buttons } });
+    return;
+  }
 
   if (data.startsWith('view_job_')) {
     showJobDetail(chatId, userId, data.replace('view_job_', ''));
@@ -2371,7 +2441,7 @@ async function showJobDetail(chatId, userId, jobId) {
   }
 
   let buttons = [];
-  if (!isOwner && !alreadyApplied && !wasRejected && job.status === 'open') buttons.push([{ text: "✋ I'll do it!", callback_data: `apply_${jobId}` }]);
+  if (!isOwner && !alreadyApplied && !wasRejected && job.status === 'open') buttons.push([{ text: "✋ I'll do it!", callback_data: `apply_${jobId}` }, { text: '⭐ Favourite', callback_data: `fav_add_${jobId}` }]);
   if (wasRejected && job.status === 'open') buttons.push([{ text: '🔄 Re-apply', callback_data: `apply_${jobId}` }]);
   if (alreadyApplied) buttons.push([{ text: '✅ Already applied', callback_data: 'noop' }]);
   if (isOwner)        buttons.push([{ text: '⚙️ Manage this hustle', callback_data: `manage_job_${jobId}` }]);
