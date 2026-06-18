@@ -1661,10 +1661,11 @@ Keep hustling! 💪`,
       bot.deleteMessage(chatId, s.draft.lastMsgId).catch(() => {});
       s.draft.lastMsgId = null;
     }
-    await bot.sendMessage(chatId,
+    const summaryMsg = await bot.sendMessage(chatId,
       `➕ *Post a Hustle*\n\n✅ *Title:* ${escapeMarkdown(s.draft.title)}\n✅ *Description:* ${escapeMarkdown(s.draft.description)}\n✅ *Pay:* KES ${s.draft.pay}\n✅ *Location:* ${escapeMarkdown(s.draft.location)}\n✅ *Deadline:* ${s.draft.urgency}`,
       { parse_mode: 'Markdown' }
-    ).catch(() => {});
+    ).catch(() => null);
+    if (summaryMsg) s.draft.summaryMsgId = summaryMsg.message_id;
     // Send photo prompt below
     bot.sendMessage(chatId,
       `📷 *Add a photo or video of the job!*\n\n_To attach — tap the 📎 (paperclip) next to the message box, pick one photo or one video, and send it._\n\nOr tap *DONE* to post without media.`,
@@ -1683,6 +1684,7 @@ Keep hustling! 💪`,
     // Clear wizard buttons before posting
     if (s.draft.photoPromptId) bot.deleteMessage(chatId, s.draft.photoPromptId).catch(() => {});
     if (s.draft.photoStatusId) bot.deleteMessage(chatId, s.draft.photoStatusId).catch(() => {});
+    if (s.draft.summaryMsgId)  bot.deleteMessage(chatId, s.draft.summaryMsgId).catch(() => {});
     if (s.draft.lastMsgId)     bot.deleteMessage(chatId, s.draft.lastMsgId).catch(() => {});
     publishJob(chatId, userId, user, s.draft);
     clearSession(userId);
@@ -2341,13 +2343,19 @@ bot.on('message', async (msg) => {
           await bot.deleteMessage(chatId, s.draft.photoPromptId).catch(() => {});
           s.draft.photoPromptId = null;
         }
+        if (s.draft.summaryMsgId) {
+          await bot.deleteMessage(chatId, s.draft.summaryMsgId).catch(() => {});
+          s.draft.summaryMsgId = null;
+        }
         const what = s.draft.video ? 'Video' : 'Photo';
         const extraNote = isAlbum ? '\n\nℹ️ Only one photo or video is allowed per post — I kept the last one.' : '';
         const statusText =
           `➕ *Post a Hustle*\n\n` +
           `✅ *Title:* ${escapeMarkdown(s.draft.title)}\n` +
+          `✅ *Description:* ${escapeMarkdown(s.draft.description)}\n` +
           `✅ *Pay:* KES ${s.draft.pay}\n` +
-          `✅ *Location:* ${escapeMarkdown(s.draft.location)}\n\n` +
+          `✅ *Location:* ${escapeMarkdown(s.draft.location)}\n` +
+          `✅ *Deadline:* ${s.draft.urgency}\n\n` +
           `✅ ${what} added!${extraNote}\n\nPublish with this ${what.toLowerCase()}, or replace it?`;
         const statusKb = { inline_keyboard: [
           [{ text: `✅ Publish with this ${what.toLowerCase()}`, callback_data: 'post_confirm_photo' }],
@@ -2378,8 +2386,10 @@ bot.on('message', async (msg) => {
       const statusText =
         `➕ *Post a Hustle*\n\n` +
         `✅ *Title:* ${escapeMarkdown(s.draft.title)}\n` +
+        `✅ *Description:* ${escapeMarkdown(s.draft.description)}\n` +
         `✅ *Pay:* KES ${s.draft.pay}\n` +
-        `✅ *Location:* ${escapeMarkdown(s.draft.location)}\n\n` +
+        `✅ *Location:* ${escapeMarkdown(s.draft.location)}\n` +
+        `✅ *Deadline:* ${s.draft.urgency}\n\n` +
         `✅ ${what} updated!\n\nPublish with this ${what.toLowerCase()}, or replace it?`;
       const statusKb = { inline_keyboard: [
         [{ text: `✅ Publish with this ${what.toLowerCase()}`, callback_data: 'post_confirm_photo' }],
