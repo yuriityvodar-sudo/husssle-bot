@@ -1394,6 +1394,49 @@ bot.on('callback_query', async (query) => {
     return;
   }
 
+  if (data.startsWith('view_one_applicant_')) {
+    const parts = data.replace('view_one_applicant_', '').split('_');
+    const jobId = parts[0];
+    const workerId = parseInt(parts[1]);
+    const job = await getJob(jobId);
+    const apps = await getJobApplications(jobId);
+    const app = apps.find(a => String(a.workerId) === String(workerId));
+    if (!job || !app) { bot.sendMessage(chatId, '⚠️ Applicant not found.'); return; }
+
+    const workerDoc = await db.collection('users').doc(String(workerId)).get();
+    const w = workerDoc.exists ? workerDoc.data() : {};
+    const joinDate = w.createdAt ? new Date(w.createdAt).toLocaleDateString('en-KE', { month: 'short', year: 'numeric' }) : 'Unknown';
+    const totalEarned = w.totalEarned || 0;
+    const completedJobs = w.completedJobs || 0;
+
+    let reviewsText = '';
+    const reviewsSnap = await db.collection('users').doc(String(workerId))
+      .collection('reviews').orderBy('createdAt', 'desc').limit(2).get();
+    if (!reviewsSnap.empty) {
+      const stars = n => '⭐'.repeat(n) + '☆'.repeat(5 - n);
+      reviewsText = '\n💬 ' + reviewsSnap.docs.map(d => {
+        const r = d.data();
+        return `${stars(r.stars)} _"${r.comment}"_`;
+      }).join(' · ');
+    }
+
+    let text =
+      `👤 *${escapeMarkdown(app.workerName)}* — ${getRatingStars(app.rating, app.ratingCount)}\n` +
+      `📱 ${app.workerPhone}\n` +
+      `📅 Member since ${joinDate}\n` +
+      `💰 Total earned: KES ${totalEarned.toLocaleString()}\n`;
+    if (completedJobs > 0) text += `✅ ${completedJobs} job${completedJobs > 1 ? 's' : ''} completed\n`;
+    text += reviewsText;
+
+    const chatUrl = w.username ? `https://t.me/${w.username}` : `tg://user?id=${workerId}`;
+    await showState(chatId, userId, text, { reply_markup: { inline_keyboard: [
+      [{ text: `✅ Accept ${app.workerName}`, callback_data: `accept_${jobId}_${workerId}` }, { text: '❌ Reject', callback_data: `reject_${jobId}_${workerId}` }],
+      [{ text: '💬 Message', url: chatUrl }],
+      [{ text: '← Back to applicants', callback_data: `view_applicants_${jobId}` }],
+    ]}});
+    return;
+  }
+
   if (data.startsWith('view_applicants_')) {
     showApplicants(chatId, userId, data.replace('view_applicants_', ''));
     return;
@@ -2517,36 +2560,11 @@ async function showApplicants(chatId, userId, jobId) {
   }
 
   if (pending.length) {
-    text += `⏳ *Pending (${pending.length}):*\n\n`;
-    for (let i = 0; i < pending.length; i++) {
-      const a = pending[i];
-      // Fetch worker profile
-      const workerDoc = await db.collection('users').doc(String(a.workerId)).get();
-      const w = workerDoc.exists ? workerDoc.data() : {};
-      const joinDate = w.createdAt ? new Date(w.createdAt).toLocaleDateString('en-KE', { month: 'short', year: 'numeric' }) : 'Unknown';
-      const totalEarned = w.totalEarned || 0;
-      const completedJobs = w.completedJobs || 0;
-
-      // Fetch last 2 reviews
-      const reviewsSnap = await db.collection('users').doc(String(a.workerId))
-        .collection('reviews').orderBy('createdAt', 'desc').limit(2).get();
-      let reviewsText = '';
-      if (!reviewsSnap.empty) {
-        const stars = n => '⭐'.repeat(n) + '☆'.repeat(5 - n);
-        reviewsText = '\n💬 ' + reviewsSnap.docs.map(d => {
-          const r = d.data();
-          return `${stars(r.stars)} _"${r.comment}"_`;
-        }).join(' · ');
-      }
-
+    text += `⏳ *Pending (${pending.length}):*\n`;
+    pending.forEach((a, i) => {
       text += `${i+1}. *${escapeMarkdown(a.workerName)}* — ${getRatingStars(a.rating, a.ratingCount)}\n`;
-      text += `📱 ${a.workerPhone}\n`;
-      text += `📅 Member since ${joinDate}\n`;
-      text += `💰 Total earned: KES ${totalEarned.toLocaleString()}\n`;
-      if (completedJobs > 0) text += `✅ ${completedJobs} job${completedJobs > 1 ? 's' : ''} completed\n`;
-      text += reviewsText + '\n\n';
-    }
-    text += 'Tap to accept:';
+    });
+    text += `\nTap a candidate to see full details:`;
   }
 
   if (rejected.length) {
@@ -2556,14 +2574,10 @@ async function showApplicants(chatId, userId, jobId) {
     });
   }
 
-  const buttons = pending.flatMap(a => {
-    const chatUrl = a.workerUsername ? `https://t.me/${a.workerUsername}` : `tg://user?id=${a.workerId}`;
-    return [
-      [{ text: `💬 Message ${a.workerName}`, url: chatUrl }],
-      [{ text: `✅ Accept ${a.workerName}`, callback_data: `accept_${jobId}_${a.workerId}` },
-       { text: `❌ Reject`, callback_data: `reject_${jobId}_${a.workerId}` }]
-    ];
-  });
+  const buttons = pending.map(a => (
+    [{ text: `👤 View ${a.workerName}`, callback_data: `view_one_applicant_${jobId}_${a.workerId}` }]
+  ));
+  buttons.push([{ text: '← Back', callback_data: `manage_job_${jobId}` }]);
   await showState(chatId, userId, text, { reply_markup: { inline_keyboard: buttons } });
 }
 
