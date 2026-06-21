@@ -3648,7 +3648,30 @@ bot.on('inline_query', async (query) => {
 
     jobs = jobs.slice(0, 20); // Telegram max is 50, keep it clean
 
-    const results = jobs.map(j => {
+    const promoCard = {
+      type: 'article',
+      id: 'husssle_promo',
+      title: '🇰🇪 Husssle Nairobi — the hustle marketplace',
+      description: 'Post a job or find work — right here in Telegram',
+      input_message_content: {
+        message_text:
+          `💼 🇰🇪 *Husssle Nairobi — the hustle marketplace*\n\n` +
+          `Husssle is a simple way to find work or get a job done, right in Telegram.\n\n` +
+          `Need help with a task, delivery, cleaning, a move, or anything else? Post it in a few taps — it appears in the channel and workers apply. You see their ratings and reviews from real people, and pick the best one with one tap.\n\n` +
+          `Looking for work? Browse hustles and apply with one tap — no CV, no calls. The channel is free and everything's automatic.`,
+        parse_mode: 'Markdown',
+      },
+      reply_markup: {
+        inline_keyboard: [[
+          { text: '📢 Open channel', url: 'https://t.me/husssleke' },
+          { text: '➕ Post a hustle', url: 'https://t.me/nbohussle_bot?start=post' },
+        ],[
+          { text: '🔍 Find work', url: 'https://t.me/nbohussle_bot/hussslenbo' },
+        ]],
+      },
+    };
+
+    const results = [promoCard, ...jobs.map(j => {
       const applyUrl = `https://t.me/nbohussle_bot?start=apply_${j.id}`;
       const rating = j.posterRating && j.posterRatingCount
         ? `⭐ ${(j.posterRating / j.posterRatingCount).toFixed(1)}`
@@ -3678,7 +3701,7 @@ bot.on('inline_query', async (query) => {
           ]],
         },
       };
-    });
+    })];
 
     await bot.answerInlineQuery(query.id, results, {
       cache_time: 30,
