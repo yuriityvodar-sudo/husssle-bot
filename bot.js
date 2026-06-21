@@ -650,6 +650,33 @@ bot.onText(/\/cleancancelled/, async (msg) => {
   bot.sendMessage(msg.chat.id, `✅ Done!\n\n🗑️ Deleted from channel: ${deleted}\n⏭️ Skipped: ${skipped}`);
 });
 
+// ─── Admin: Purge all jobs older than the auto-delete window (manual trigger) ──
+bot.onText(/\/cleanold/, async (msg) => {
+  if (msg.from.id !== ADMIN_ID) return;
+  bot.sendMessage(msg.chat.id, `⏳ Purging all jobs older than ${AUTODELETE_DAYS} days...`);
+  const cutoff = Date.now() - (AUTODELETE_DAYS * 24 * 60 * 60 * 1000);
+  const snap = await db.collection('jobs').where('createdAt', '<=', cutoff).get();
+  if (snap.empty) {
+    bot.sendMessage(msg.chat.id, `✅ Nothing to purge — no jobs older than ${AUTODELETE_DAYS} days.`);
+    return;
+  }
+  let removed = 0;
+  for (const doc of snap.docs) {
+    const job = doc.data();
+    if (job.channelMsgId) await bot.deleteMessage(CHANNEL_ID, job.channelMsgId).catch(() => {});
+    if (job.extraChannelMsgIds && job.extraChannelMsgIds.length) {
+      for (const mid of job.extraChannelMsgIds) await bot.deleteMessage(CHANNEL_ID, mid).catch(() => {});
+    }
+    const appsSnap = await db.collection('applications').where('jobId', '==', String(job.id)).get();
+    for (const appDoc of appsSnap.docs) await appDoc.ref.delete().catch(() => {});
+    await doc.ref.delete().catch(() => {});
+    if (job.channelMsgId) await db.collection('channelPosts').doc(String(job.channelMsgId)).delete().catch(() => {});
+    removed++;
+    await new Promise(r => setTimeout(r, 200));
+  }
+  bot.sendMessage(msg.chat.id, `✅ Done!\n\n🗑️ Removed ${removed} old job(s) from Firestore and channel.`);
+});
+
 // ─── Admin: Send welcome message to channel (pinned) ──────────────────────────
 bot.onText(/\/sendwelcome/, async (msg) => {
   if (msg.from.id !== ADMIN_ID) return;
@@ -3525,6 +3552,7 @@ bot.setMyCommands([
   { command: 'backfill', description: 'Refresh hashtags on posts (admin)' },
   { command: 'fixdone', description: 'Refresh completed posts (admin)' },
   { command: 'cleancancelled', description: 'Clean cancelled jobs (admin)' },
+  { command: 'cleanold', description: 'Purge jobs older than auto-delete window (admin)' },
   { command: 'sendwelcome', description: 'Post welcome to channel (admin)' },
   { command: 'sendapp', description: 'Post promo to channel (admin)' },
 ], { scope: { type: 'chat', chat_id: 889114803 } }).then(() => console.log('✅ Admin commands set!')).catch(console.error);
