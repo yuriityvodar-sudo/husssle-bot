@@ -3062,6 +3062,28 @@ async function updateDoneChannelPost(job, acceptedApp) {
 }
 
 // ─── Cleanup expired done jobs ─────────────────────────────────────────────────
+async function notifyJobRemoved(job) {
+  try {
+    const apps = await db.collection('applications').where('jobId', '==', String(job.id)).get();
+    for (const doc of apps.docs) {
+      const app = doc.data();
+      if (app.status === 'pending') {
+        bot.sendMessage(app.workerId,
+          `ℹ️ *Hustle no longer available*\n\nThe hustle *${escapeMarkdown(job.title)}* (KES ${job.pay}) you applied for has been removed. The poster may have changed plans.\n\nDon't stop — check out other open hustles! 💪`,
+          { parse_mode: 'Markdown' }
+        ).catch(() => {});
+      } else if (app.status === 'accepted') {
+        bot.sendMessage(app.workerId,
+          `ℹ️ *Hustle removed*\n\nThe hustle *${escapeMarkdown(job.title)}* you were working on was removed by the poster. Reach out to them directly if you have questions.`,
+          { parse_mode: 'Markdown' }
+        ).catch(() => {});
+      }
+    }
+  } catch (e) {
+    console.log('notifyJobRemoved error:', e.message);
+  }
+}
+
 async function cleanupExpiredJobs() {
   console.log('🧹 cleanupExpiredJobs running...');
   try {
@@ -3110,6 +3132,7 @@ async function cleanupExpiredJobs() {
       for (const doc of openSnap.docs) {
         const job = doc.data();
         if (job.channelMsgId) await bot.deleteMessage(CHANNEL_ID, job.channelMsgId).catch(() => {});
+        await notifyJobRemoved(job);
         const appsSnap = await db.collection('applications').where('jobId', '==', String(job.id)).get();
         for (const appDoc of appsSnap.docs) await appDoc.ref.delete().catch(() => {});
         await doc.ref.delete();
