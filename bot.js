@@ -644,6 +644,54 @@ bot.onText(/\/cleancancelled/, async (msg) => {
   bot.sendMessage(msg.chat.id, `✅ Done!\n\n🗑️ Deleted from channel: ${deleted}\n⏭️ Skipped: ${skipped}`);
 });
 
+// ─── Admin: Send welcome message to channel (pinned) ──────────────────────────
+bot.onText(/\/sendwelcome/, async (msg) => {
+  if (msg.from.id !== ADMIN_ID) return;
+
+  const text =
+    `🤖 *Welcome to Husssle Nairobi!*\n\n` +
+    `Nairobi's marketplace for quick jobs and hustles.\n\n` +
+    `*How it works:*\n\n` +
+    `📌 *Need something done?*\n` +
+    `Post a hustle through the bot — say what you need, how much you'll pay, and the area. It appears here automatically. Workers apply, you pick the best one.\n\n` +
+    `🔨 *Looking for work?*\n` +
+    `Browse open hustles right here in the channel or in the app. Apply with one tap — no CV, no calls.\n\n` +
+    `⭐ *Ratings & reviews*\n` +
+    `After every job, both sides leave a review. More jobs = higher rating.\n\n` +
+    `💰 *Already paid out to real people in Nairobi*\n\n` +
+    `Tap below to start:`;
+
+  const sent = await bot.sendMessage(CHANNEL_ID, text, {
+    parse_mode: 'Markdown',
+    reply_markup: { inline_keyboard: [[
+      { text: '➕ Post a hustle', url: 'https://t.me/nbohussle_bot?start=post' },
+    ]]}
+  });
+  await bot.pinChatMessage(CHANNEL_ID, sent.message_id, { disable_notification: true }).catch(() => {});
+  bot.sendMessage(msg.chat.id, '✅ Welcome message sent and pinned!');
+});
+
+// ─── Admin: Send promo/app message to channel ─────────────────────────────────
+bot.onText(/\/sendapp/, async (msg) => {
+  if (msg.from.id !== ADMIN_ID) return;
+
+  const text =
+    `🇰🇪 *Husssle Nairobi*\n\n` +
+    `Nairobi's hustle marketplace.\n` +
+    `Find work or find someone to do the job. Simple.\n\n` +
+    `🔍 Browse all open hustles in the app\n` +
+    `➕ Post your own through the bot`;
+
+  await bot.sendMessage(CHANNEL_ID, text, {
+    parse_mode: 'Markdown',
+    reply_markup: { inline_keyboard: [[
+      { text: '🔍 Find work', url: 'https://t.me/nbohussle_bot/hussslenbo' },
+      { text: '➕ Post a hustle', url: 'https://t.me/nbohussle_bot?start=post' },
+    ]]}
+  });
+  bot.sendMessage(msg.chat.id, '✅ Message sent to channel! Pin it if you want.');
+});
+
 // ─── Callback query handler ───────────────────────────────────────────────────
 bot.on('callback_query', async (query) => {
   // Wrap entire handler for better error visibility
@@ -3427,6 +3475,8 @@ bot.setMyCommands([
   { command: 'backfill', description: 'Refresh hashtags on posts (admin)' },
   { command: 'fixdone', description: 'Refresh completed posts (admin)' },
   { command: 'cleancancelled', description: 'Clean cancelled jobs (admin)' },
+  { command: 'sendwelcome', description: 'Post welcome to channel (admin)' },
+  { command: 'sendapp', description: 'Post promo to channel (admin)' },
 ], { scope: { type: 'chat', chat_id: 889114803 } }).then(() => console.log('✅ Admin commands set!')).catch(console.error);
 
 // Run cleanup on startup + every 30 minutes
