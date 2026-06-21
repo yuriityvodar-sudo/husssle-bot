@@ -2859,13 +2859,38 @@ async function acceptApplicant(chatId, posterId, jobId, workerId) {
   const app  = apps.find(a => String(a.workerId) === String(workerId));
   if (!app) { bot.sendMessage(chatId, '❌ Applicant not found.'); return; }
 
-  // update all applications
+  // Atomically claim the job inside a transaction so two rapid accepts can't
+  // both succeed. Re-read job status inside the txn and abort if it's no longer open.
+  const jobRef = db.collection('jobs').doc(String(jobId));
+  let claimed = false;
+  try {
+    await db.runTransaction(async (tx) => {
+      const fresh = await tx.get(jobRef);
+      if (!fresh.exists) throw new Error('JOB_GONE');
+      const status = fresh.data().status;
+      if (status !== 'open') throw new Error('ALREADY_TAKEN');
+      tx.update(jobRef, { status: 'taken' });
+      claimed = true;
+    });
+  } catch (e) {
+    if (e.message === 'ALREADY_TAKEN') {
+      bot.sendMessage(chatId, `⚠️ This hustle was already assigned to someone. Only one worker can be accepted.`);
+    } else if (e.message === 'JOB_GONE') {
+      bot.sendMessage(chatId, '❌ Job no longer exists.');
+    } else {
+      console.log(`[ACCEPT] transaction error — ${e.message}`);
+      bot.sendMessage(chatId, '❌ Something went wrong accepting that applicant. Please try again.');
+    }
+    return;
+  }
+  if (!claimed) return;
+
+  // Job is now ours — update all applications (accepted/rejected)
   const batch = db.batch();
   const appsSnap = await db.collection('applications').where('jobId', '==', String(jobId)).get();
   appsSnap.docs.forEach(doc => {
     batch.update(doc.ref, { status: String(doc.data().workerId) === String(workerId) ? 'accepted' : 'rejected' });
   });
-  batch.update(db.collection('jobs').doc(String(jobId)), { status: 'taken' });
   await batch.commit();
 
   job.status = 'taken';
