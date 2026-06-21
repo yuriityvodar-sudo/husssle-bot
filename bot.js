@@ -558,6 +558,92 @@ bot.onText(/\/banned/, async (msg) => {
   await showState(msg.chat.id, msg.from.id, text, { reply_markup: { inline_keyboard: buttons } });
 });
 
+// ─── Admin: Backfill hashtags/buttons on all live channel posts ───────────────
+bot.onText(/\/backfill/, async (msg) => {
+  if (msg.from.id !== ADMIN_ID) return;
+  bot.sendMessage(msg.chat.id, '⏳ Starting hashtag backfill...');
+
+  const snap = await db.collection('jobs').get();
+  let updated = 0, failed = 0, skipped = 0;
+
+  for (const doc of snap.docs) {
+    const job = { id: doc.id, ...doc.data() };
+    if (!job.channelMsgId) { skipped++; continue; }
+    if (job.status === 'done') { skipped++; continue; }
+
+    try {
+      const caption = await formatChannelPost(job);
+      const plain = caption.replace(/[*`]/g, '');
+      const applyUrl = `https://t.me/nbohussle_bot?start=apply_${job.id}`;
+      const keyboard = { inline_keyboard: [[{ text: "✋ I'll do it!", url: applyUrl }, { text: '🔍 Find work', url: 'https://t.me/nbohussle_bot/hussslenbo' }]] };
+
+      if (job.video) {
+        await bot.editMessageCaption(plain, { chat_id: CHANNEL_ID, message_id: job.channelMsgId, reply_markup: keyboard }).catch(() => {});
+      } else if (job.photos && job.photos.length >= 1) {
+        await bot.editMessageCaption(plain, { chat_id: CHANNEL_ID, message_id: job.channelMsgId, reply_markup: keyboard });
+      } else {
+        await bot.editMessageText(plain, { chat_id: CHANNEL_ID, message_id: job.channelMsgId, reply_markup: keyboard });
+      }
+      updated++;
+      await new Promise(r => setTimeout(r, 500));
+    } catch(e) {
+      if (e.message && e.message.includes('message is not modified')) {
+        skipped++;
+      } else {
+        console.log(`Backfill failed for ${job.id}: ${e.message}`);
+        failed++;
+      }
+    }
+  }
+  bot.sendMessage(msg.chat.id, `✅ Done!\n\n✅ Updated: ${updated}\n❌ Failed: ${failed}\n⏭️ Skipped: ${skipped}`);
+});
+
+// ─── Admin: Refresh completed-job posts in channel ────────────────────────────
+bot.onText(/\/fixdone/, async (msg) => {
+  if (msg.from.id !== ADMIN_ID) return;
+  bot.sendMessage(msg.chat.id, '⏳ Refreshing completed posts...');
+
+  const snap = await db.collection('jobs').where('status', '==', 'done').get();
+  let updated = 0, failed = 0, skipped = 0;
+
+  for (const doc of snap.docs) {
+    const job = { id: doc.id, ...doc.data() };
+    if (!job.channelMsgId) { skipped++; continue; }
+    try {
+      const apps = await db.collection('applications').where('jobId', '==', String(job.id)).get();
+      const acceptedApp = apps.docs.map(d => d.data()).find(a => a.status === 'done' || a.status === 'accepted');
+      await updateDoneChannelPost(job, acceptedApp);
+      updated++;
+      await new Promise(r => setTimeout(r, 500));
+    } catch(e) {
+      if (e.message && e.message.includes('message is not modified')) {
+        skipped++;
+      } else {
+        console.log(`fixdone failed for ${job.id}: ${e.message}`);
+        failed++;
+      }
+    }
+  }
+  bot.sendMessage(msg.chat.id, `✅ Done!\n\n✅ Updated: ${updated}\n❌ Failed: ${failed}\n⏭️ Skipped: ${skipped}`);
+});
+
+// ─── Admin: Clean up cancelled jobs from channel ──────────────────────────────
+bot.onText(/\/cleancancelled/, async (msg) => {
+  if (msg.from.id !== ADMIN_ID) return;
+  bot.sendMessage(msg.chat.id, '⏳ Cleaning cancelled jobs...');
+  const snap = await db.collection('jobs').where('status', '==', 'cancelled').get();
+  let deleted = 0, skipped = 0;
+  for (const doc of snap.docs) {
+    const job = { id: doc.id, ...doc.data() };
+    if (job.channelMsgId) {
+      const ok = await bot.deleteMessage(CHANNEL_ID, job.channelMsgId).then(() => true).catch(() => false);
+      ok ? deleted++ : skipped++;
+    } else { skipped++; }
+    await new Promise(r => setTimeout(r, 300));
+  }
+  bot.sendMessage(msg.chat.id, `✅ Done!\n\n🗑️ Deleted from channel: ${deleted}\n⏭️ Skipped: ${skipped}`);
+});
+
 // ─── Callback query handler ───────────────────────────────────────────────────
 bot.on('callback_query', async (query) => {
   // Wrap entire handler for better error visibility
@@ -3338,6 +3424,9 @@ bot.setMyCommands([
   { command: 'rules',  description: 'View the rules' },
   { command: 'banned', description: 'View banned users' },
   { command: 'admin',  description: 'All jobs (admin)' },
+  { command: 'backfill', description: 'Refresh hashtags on posts (admin)' },
+  { command: 'fixdone', description: 'Refresh completed posts (admin)' },
+  { command: 'cleancancelled', description: 'Clean cancelled jobs (admin)' },
 ], { scope: { type: 'chat', chat_id: 889114803 } }).then(() => console.log('✅ Admin commands set!')).catch(console.error);
 
 // Run cleanup on startup + every 30 minutes
