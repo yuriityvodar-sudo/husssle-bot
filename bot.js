@@ -3218,213 +3218,231 @@ async function notifyJobRemoved(job) {
   }
 }
 
-async function cleanupExpiredJobs() {
-  console.log('🧹 cleanupExpiredJobs running...');
+// ─── Cleanup helpers: admin alerts + retry wrapper ────────────────────────────
+async function notifyAdmin(message) {
   try {
-    const now = Date.now();
-    const thirtyDaysAgo = now - (30 * 24 * 60 * 60 * 1000);
+    await bot.sendMessage(ADMIN_ID, message, { parse_mode: 'Markdown' });
+  } catch (e) {
+    console.error('notifyAdmin failed:', e.message);
+  }
+}
 
-    // 1. Clean up done jobs with deleteAt
-    const doneSnap = await db.collection('jobs')
-      .where('status', '==', 'done')
-      .where('deleteAt', '<=', now)
-      .get();
-
-    if (!doneSnap.empty) {
-      console.log(`🧹 Cleaning up ${doneSnap.size} expired done job(s)...`);
-      for (const doc of doneSnap.docs) {
-        const job = doc.data();
-        if (job.channelMsgId) {
-          try {
-            await bot.deleteMessage(CHANNEL_ID, job.channelMsgId);
-          } catch (e) {
-            const alreadyGone = e.message && (e.message.includes('message to delete not found') || e.message.includes('MESSAGE_ID_INVALID'));
-            if (!alreadyGone) {
-              console.error(`❌ Failed to delete channel post for "${job.title}" (msgId: ${job.channelMsgId}): ${e.message}`);
-              await doc.ref.update({ channelDeleteFailed: true }).catch(() => {});
-              continue; // leave Firestore record intact so we retry next cycle
-            }
-            // already deleted from channel — proceed to clean up Firestore
-          }
-        }
-        const appsSnap = await db.collection('applications').where('jobId', '==', String(job.id)).get();
-        for (const appDoc of appsSnap.docs) await appDoc.ref.delete().catch(() => {});
-        await doc.ref.delete();
-        if (job.channelMsgId) await db.collection('channelPosts').doc(String(job.channelMsgId)).delete().catch(() => {});
-        console.log(`✅ Deleted expired done job: ${job.title}`);
+async function withRetry(fn, name, maxRetries = 3) {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      await fn();
+      return true;
+    } catch (e) {
+      console.error(`${name} failed (attempt ${attempt}/${maxRetries}): ${e.message}`);
+      if (attempt < maxRetries) {
+        await notifyAdmin(`⚠️ *${name}* failed (attempt ${attempt}/${maxRetries})\nRetrying in 1 hour\nError: ${e.message}`);
+        await new Promise(r => setTimeout(r, 60 * 60 * 1000)); // wait 1h
+      } else {
+        await notifyAdmin(`🚨 *${name}* failed after ${maxRetries} attempts\nNext attempt in 24 hours\nError: ${e.message}`);
       }
     }
+  }
+  return false;
+}
 
-    // 2. Auto-expire open jobs older than 30 days
-    const openSnap = await db.collection('jobs')
-      .where('status', '==', 'open')
-      .where('createdAt', '<=', thirtyDaysAgo)
-      .get();
-
-    if (!openSnap.empty) {
-      console.log(`🧹 Auto-expiring ${openSnap.size} open job(s) older than 30 days...`);
-      for (const doc of openSnap.docs) {
-        const job = doc.data();
-        if (job.channelMsgId) await bot.deleteMessage(CHANNEL_ID, job.channelMsgId).catch(() => {});
-        await notifyJobRemoved(job);
-        const appsSnap = await db.collection('applications').where('jobId', '==', String(job.id)).get();
-        for (const appDoc of appsSnap.docs) await appDoc.ref.delete().catch(() => {});
-        await doc.ref.delete();
-        // Notify poster
-        bot.sendMessage(job.posterId,
-          `⏰ *Job Expired*\n\nYour job *${escapeMarkdown(job.title)}* (KES ${job.pay}) has been automatically removed after 30 days with no worker found.\n\nFeel free to post it again if you still need help!`,
-          { parse_mode: 'Markdown' }
-        ).catch(() => {});
-        console.log(`✅ Auto-expired open job: ${job.title}`);
-      }
-    }
-
-    // 3. Auto-expire taken jobs older than 30 days
-    const takenSnap = await db.collection('jobs')
-      .where('status', '==', 'taken')
-      .where('createdAt', '<=', thirtyDaysAgo)
-      .get();
-
-    if (!takenSnap.empty) {
-      console.log(`🧹 Auto-expiring ${takenSnap.size} taken job(s) older than 30 days...`);
-      for (const doc of takenSnap.docs) {
-        const job = doc.data();
-        const appsSnap = await db.collection('applications').where('jobId', '==', String(job.id)).get();
-        const acceptedApp = appsSnap.docs.map(d => d.data()).find(a => a.status === 'accepted');
-        // Update job status to done
-        const deleteAt = Date.now() + 24 * 60 * 60 * 1000;
-        await doc.ref.update({ status: 'done', deleteAt });
-        if (job.channelMsgId) await bot.deleteMessage(CHANNEL_ID, job.channelMsgId).catch(() => {});
-        // Notify both sides
-        bot.sendMessage(job.posterId,
-          `⏰ *Job Auto-Closed*\n\nYour job *${escapeMarkdown(job.title)}* has been automatically closed after 30 days. Please leave a review if you haven't already.`,
-          { parse_mode: 'Markdown' }
-        ).catch(() => {});
-        if (acceptedApp) {
-          bot.sendMessage(acceptedApp.workerId,
-            `⏰ *Job Auto-Closed*\n\n*${escapeMarkdown(job.title)}* has been automatically closed after 30 days. Please leave a review if you haven't already.`,
-            { parse_mode: 'Markdown' }
-          ).catch(() => {});
-          updateUserPin(acceptedApp.workerId, true).catch(() => {});
-        }
-        updateUserPin(job.posterId, true).catch(() => {});
-        console.log(`✅ Auto-expired taken job: ${job.title}`);
-      }
-    }
-
-    // 4. Clean up cancelled jobs with deleteAt
-    const cancelledSnap = await db.collection('jobs')
-      .where('status', '==', 'cancelled')
-      .where('deleteAt', '<=', now)
-      .get();
-
-    if (!cancelledSnap.empty) {
-      console.log(`🧹 Cleaning up ${cancelledSnap.size} expired cancelled job(s)...`);
-      for (const doc of cancelledSnap.docs) {
-        const job = doc.data();
-        if (job.channelMsgId) {
-          try {
-            await bot.deleteMessage(CHANNEL_ID, job.channelMsgId);
-          } catch (e) {
-            const alreadyGone = e.message && (e.message.includes('message to delete not found') || e.message.includes('MESSAGE_ID_INVALID'));
-            if (!alreadyGone) {
-              console.error(`❌ Failed to delete channel post for "${job.title}" (msgId: ${job.channelMsgId}): ${e.message}`);
-              await doc.ref.update({ channelDeleteFailed: true }).catch(() => {});
-              continue;
-            }
-          }
-        }
-        const appsSnap = await db.collection('applications').where('jobId', '==', String(job.id)).get();
-        for (const appDoc of appsSnap.docs) await appDoc.ref.delete().catch(() => {});
-        await doc.ref.delete();
-        if (job.channelMsgId) await db.collection('channelPosts').doc(String(job.channelMsgId)).delete().catch(() => {});
-        console.log(`✅ Deleted expired cancelled job: ${job.title}`);
-      }
-    }
-
-    // 5. Safety net — scan channelPosts for orphaned channel messages
-    // Catches cases where Firestore job was deleted but channel message wasn't
-    const channelPostsSnap = await db.collection('channelPosts').get();
-    if (!channelPostsSnap.empty) {
-      for (const doc of channelPostsSnap.docs) {
-        const cp = doc.data();
-        const job = await getJob(cp.jobId).catch(() => null);
-        const jobGone   = !job;
-        const jobExpired = job && job.status === 'done' && job.deleteAt && job.deleteAt <= now;
-        if (jobGone || jobExpired) {
-          try {
-            await bot.deleteMessage(CHANNEL_ID, cp.channelMsgId);
-            console.log(`✅ Safety net deleted channel post for "${cp.jobTitle}" (msgId: ${cp.channelMsgId})`);
-          } catch (e) {
-            const alreadyGone = e.message && (e.message.includes('message to delete not found') || e.message.includes('MESSAGE_ID_INVALID'));
-            if (!alreadyGone) {
-              console.error(`❌ Safety net failed for "${cp.jobTitle}": ${e.message}`);
-              // Only bug admin if post is recent enough to be deletable (48h rule)
-              const postAge = now - (cp.createdAt || 0);
-              if (postAge < 48 * 60 * 60 * 1000) {
-                bot.sendMessage(ADMIN_ID,
-                  `⚠️ *Stuck channel post*\n\nJob: *${escapeMarkdown(cp.jobTitle)}*\nMsg ID: ${cp.channelMsgId}\n\nPlease delete manually from @husssleke.`,
-                  { parse_mode: 'Markdown' }
-                ).catch(() => {});
-              } else {
-                console.log(`⏭ Skipping DM for old post "${cp.jobTitle}" — auto-delete will handle it`);
-              }
-              continue;
-            }
-          }
-          await doc.ref.delete();
-        }
-      }
-    }
-
-    // 6. Retry previously failed channel deletes
-    const failedSnap = await db.collection('jobs')
-      .where('channelDeleteFailed', '==', true)
-      .get();
-
-    if (!failedSnap.empty) {
-      console.log(`🔁 Retrying ${failedSnap.size} failed channel delete(s)...`);
-      for (const doc of failedSnap.docs) {
-        const job = doc.data();
-        if (!job.channelMsgId) {
-          await doc.ref.update({ channelDeleteFailed: false }).catch(() => {});
+// ─── Cleanup worker 1: done jobs past deleteAt ────────────────────────────────
+async function cleanupDoneJobs() {
+  const now = Date.now();
+  const doneSnap = await db.collection('jobs')
+    .where('status', '==', 'done')
+    .where('deleteAt', '<=', now)
+    .get();
+  if (doneSnap.empty) return;
+  console.log(`🧹 Cleaning up ${doneSnap.size} expired done job(s)...`);
+  for (const doc of doneSnap.docs) {
+    const job = doc.data();
+    if (job.channelMsgId) {
+      try {
+        await bot.deleteMessage(CHANNEL_ID, job.channelMsgId);
+      } catch (e) {
+        const alreadyGone = e.message && (e.message.includes('message to delete not found') || e.message.includes('MESSAGE_ID_INVALID'));
+        if (!alreadyGone) {
+          console.error(`❌ Failed to delete channel post for "${job.title}" (msgId: ${job.channelMsgId}): ${e.message}`);
+          await doc.ref.update({ channelDeleteFailed: true }).catch(() => {});
           continue;
         }
+      }
+    }
+    const appsSnap = await db.collection('applications').where('jobId', '==', String(job.id)).get();
+    for (const appDoc of appsSnap.docs) await appDoc.ref.delete().catch(() => {});
+    await doc.ref.delete();
+    if (job.channelMsgId) await db.collection('channelPosts').doc(String(job.channelMsgId)).delete().catch(() => {});
+    console.log(`✅ Deleted expired done job: ${job.title}`);
+  }
+}
+
+// ─── Cleanup worker 2: open jobs older than 30 days ───────────────────────────
+async function cleanupOpenJobs() {
+  const now = Date.now();
+  const thirtyDaysAgo = now - (30 * 24 * 60 * 60 * 1000);
+  const openSnap = await db.collection('jobs')
+    .where('status', '==', 'open')
+    .where('createdAt', '<=', thirtyDaysAgo)
+    .get();
+  if (openSnap.empty) return;
+  console.log(`🧹 Auto-expiring ${openSnap.size} open job(s) older than 30 days...`);
+  for (const doc of openSnap.docs) {
+    const job = doc.data();
+    if (job.channelMsgId) await bot.deleteMessage(CHANNEL_ID, job.channelMsgId).catch(() => {});
+    await notifyJobRemoved(job);
+    const appsSnap = await db.collection('applications').where('jobId', '==', String(job.id)).get();
+    for (const appDoc of appsSnap.docs) await appDoc.ref.delete().catch(() => {});
+    await doc.ref.delete();
+    bot.sendMessage(job.posterId,
+      `⏰ *Job Expired*\n\nYour job *${escapeMarkdown(job.title)}* (KES ${job.pay}) has been automatically removed after 30 days with no worker found.\n\nFeel free to post it again if you still need help!`,
+      { parse_mode: 'Markdown' }
+    ).catch(() => {});
+    console.log(`✅ Auto-expired open job: ${job.title}`);
+  }
+}
+
+// ─── Cleanup worker 3: taken jobs older than 30 days ──────────────────────────
+async function cleanupTakenJobs() {
+  const now = Date.now();
+  const thirtyDaysAgo = now - (30 * 24 * 60 * 60 * 1000);
+  const takenSnap = await db.collection('jobs')
+    .where('status', '==', 'taken')
+    .where('createdAt', '<=', thirtyDaysAgo)
+    .get();
+  if (takenSnap.empty) return;
+  console.log(`🧹 Auto-expiring ${takenSnap.size} taken job(s) older than 30 days...`);
+  for (const doc of takenSnap.docs) {
+    const job = doc.data();
+    const appsSnap = await db.collection('applications').where('jobId', '==', String(job.id)).get();
+    const acceptedApp = appsSnap.docs.map(d => d.data()).find(a => a.status === 'accepted');
+    const deleteAt = Date.now() + 24 * 60 * 60 * 1000;
+    await doc.ref.update({ status: 'done', deleteAt });
+    if (job.channelMsgId) await bot.deleteMessage(CHANNEL_ID, job.channelMsgId).catch(() => {});
+    bot.sendMessage(job.posterId,
+      `⏰ *Job Auto-Closed*\n\nYour job *${escapeMarkdown(job.title)}* has been automatically closed after 30 days. Please leave a review if you haven't already.`,
+      { parse_mode: 'Markdown' }
+    ).catch(() => {});
+    if (acceptedApp) {
+      bot.sendMessage(acceptedApp.workerId,
+        `⏰ *Job Auto-Closed*\n\n*${escapeMarkdown(job.title)}* has been automatically closed after 30 days. Please leave a review if you haven't already.`,
+        { parse_mode: 'Markdown' }
+      ).catch(() => {});
+      updateUserPin(acceptedApp.workerId, true).catch(() => {});
+    }
+    updateUserPin(job.posterId, true).catch(() => {});
+    console.log(`✅ Auto-expired taken job: ${job.title}`);
+  }
+}
+
+// ─── Cleanup worker 4: cancelled jobs past deleteAt ───────────────────────────
+async function cleanupCancelledJobs() {
+  const now = Date.now();
+  const cancelledSnap = await db.collection('jobs')
+    .where('status', '==', 'cancelled')
+    .where('deleteAt', '<=', now)
+    .get();
+  if (cancelledSnap.empty) return;
+  console.log(`🧹 Cleaning up ${cancelledSnap.size} expired cancelled job(s)...`);
+  for (const doc of cancelledSnap.docs) {
+    const job = doc.data();
+    if (job.channelMsgId) {
+      try {
+        await bot.deleteMessage(CHANNEL_ID, job.channelMsgId);
+      } catch (e) {
+        const alreadyGone = e.message && (e.message.includes('message to delete not found') || e.message.includes('MESSAGE_ID_INVALID'));
+        if (!alreadyGone) {
+          console.error(`❌ Failed to delete channel post for "${job.title}" (msgId: ${job.channelMsgId}): ${e.message}`);
+          await doc.ref.update({ channelDeleteFailed: true }).catch(() => {});
+          continue;
+        }
+      }
+    }
+    const appsSnap = await db.collection('applications').where('jobId', '==', String(job.id)).get();
+    for (const appDoc of appsSnap.docs) await appDoc.ref.delete().catch(() => {});
+    await doc.ref.delete();
+    if (job.channelMsgId) await db.collection('channelPosts').doc(String(job.channelMsgId)).delete().catch(() => {});
+    console.log(`✅ Deleted expired cancelled job: ${job.title}`);
+  }
+}
+
+// ─── Cleanup worker 5: safety net for orphaned/failed channel posts ───────────
+async function cleanupOrphanedPosts() {
+  const now = Date.now();
+  // Scan channelPosts for orphaned channel messages
+  const channelPostsSnap = await db.collection('channelPosts').get();
+  if (!channelPostsSnap.empty) {
+    for (const doc of channelPostsSnap.docs) {
+      const cp = doc.data();
+      const job = await getJob(cp.jobId).catch(() => null);
+      const jobGone    = !job;
+      const jobExpired = job && job.status === 'done' && job.deleteAt && job.deleteAt <= now;
+      if (jobGone || jobExpired) {
         try {
-          await bot.deleteMessage(CHANNEL_ID, job.channelMsgId);
-          await doc.ref.update({ channelDeleteFailed: false, channelMsgId: null });
-          console.log(`✅ Retry succeeded for "${job.title}"`);
-          // If the job itself is also expired, clean it up now
-          if (job.deleteAt && job.deleteAt <= Date.now()) {
-            const appsSnap = await db.collection('applications').where('jobId', '==', String(job.id)).get();
-            for (const appDoc of appsSnap.docs) await appDoc.ref.delete().catch(() => {});
-            await doc.ref.delete();
-            console.log(`✅ Cleaned up Firestore for "${job.title}" after retry`);
-          }
+          await bot.deleteMessage(CHANNEL_ID, cp.channelMsgId);
+          console.log(`✅ Safety net deleted channel post for "${cp.jobTitle}" (msgId: ${cp.channelMsgId})`);
         } catch (e) {
           const alreadyGone = e.message && (e.message.includes('message to delete not found') || e.message.includes('MESSAGE_ID_INVALID'));
-          if (alreadyGone) {
-            await doc.ref.update({ channelDeleteFailed: false, channelMsgId: null }).catch(() => {});
-            console.log(`✅ Channel post for "${job.title}" already gone — cleared flag`);
-          } else {
-            console.error(`❌ Retry failed for "${job.title}": ${e.message}`);
-            const postAge = now - (job.createdAt || 0);
+          if (!alreadyGone) {
+            console.error(`❌ Safety net failed for "${cp.jobTitle}": ${e.message}`);
+            const postAge = now - (cp.createdAt || 0);
             if (postAge < 48 * 60 * 60 * 1000) {
               bot.sendMessage(ADMIN_ID,
-                `⚠️ *Channel delete still failing*\n\nJob: *${escapeMarkdown(job.title)}*\nMsg ID: ${job.channelMsgId}\nError: ${e.message}\n\nMay need manual deletion from @husssleke.`,
+                `⚠️ *Stuck channel post*\n\nJob: *${escapeMarkdown(cp.jobTitle)}*\nMsg ID: ${cp.channelMsgId}\n\nPlease delete manually from @husssleke.`,
                 { parse_mode: 'Markdown' }
               ).catch(() => {});
             } else {
-              console.log(`⏭ Skipping DM for old post "${job.title}" — auto-delete will handle it`);
-              await doc.ref.update({ channelDeleteFailed: false }).catch(() => {});
+              console.log(`⏭ Skipping DM for old post "${cp.jobTitle}" — auto-delete will handle it`);
             }
+            continue;
+          }
+        }
+        await doc.ref.delete();
+      }
+    }
+  }
+
+  // Retry previously failed channel deletes
+  const failedSnap = await db.collection('jobs')
+    .where('channelDeleteFailed', '==', true)
+    .get();
+  if (!failedSnap.empty) {
+    console.log(`🔁 Retrying ${failedSnap.size} failed channel delete(s)...`);
+    for (const doc of failedSnap.docs) {
+      const job = doc.data();
+      if (!job.channelMsgId) {
+        await doc.ref.update({ channelDeleteFailed: false }).catch(() => {});
+        continue;
+      }
+      try {
+        await bot.deleteMessage(CHANNEL_ID, job.channelMsgId);
+        await doc.ref.update({ channelDeleteFailed: false, channelMsgId: null });
+        console.log(`✅ Retry succeeded for "${job.title}"`);
+        if (job.deleteAt && job.deleteAt <= Date.now()) {
+          const appsSnap = await db.collection('applications').where('jobId', '==', String(job.id)).get();
+          for (const appDoc of appsSnap.docs) await appDoc.ref.delete().catch(() => {});
+          await doc.ref.delete();
+          console.log(`✅ Cleaned up Firestore for "${job.title}" after retry`);
+        }
+      } catch (e) {
+        const alreadyGone = e.message && (e.message.includes('message to delete not found') || e.message.includes('MESSAGE_ID_INVALID'));
+        if (alreadyGone) {
+          await doc.ref.update({ channelDeleteFailed: false, channelMsgId: null }).catch(() => {});
+          console.log(`✅ Channel post for "${job.title}" already gone — cleared flag`);
+        } else {
+          console.error(`❌ Retry failed for "${job.title}": ${e.message}`);
+          const postAge = now - (job.createdAt || 0);
+          if (postAge < 48 * 60 * 60 * 1000) {
+            bot.sendMessage(ADMIN_ID,
+              `⚠️ *Channel delete still failing*\n\nJob: *${escapeMarkdown(job.title)}*\nMsg ID: ${job.channelMsgId}\nError: ${e.message}\n\nMay need manual deletion from @husssleke.`,
+              { parse_mode: 'Markdown' }
+            ).catch(() => {});
+          } else {
+            console.log(`⏭ Skipping DM for old post "${job.title}" — auto-delete will handle it`);
+            await doc.ref.update({ channelDeleteFailed: false }).catch(() => {});
           }
         }
       }
     }
-
-  } catch (e) {
-    console.error('cleanupExpiredJobs error:', e.stack || e.message);
   }
 }
 
@@ -3479,9 +3497,34 @@ bot.setMyCommands([
   { command: 'sendapp', description: 'Post promo to channel (admin)' },
 ], { scope: { type: 'chat', chat_id: 889114803 } }).then(() => console.log('✅ Admin commands set!')).catch(console.error);
 
-// Run cleanup on startup + every 30 minutes
-cleanupExpiredJobs();
-setInterval(cleanupExpiredJobs, 30 * 60 * 1000);
+// Run cleanup workers on startup + every 24h, staggered to spread load.
+// Each is wrapped in withRetry (3 attempts, admin alerts) so a failure in one
+// is isolated and doesn't stop the others.
+const DAY = 24 * 60 * 60 * 1000;
+const HOUR = 60 * 60 * 1000;
+
+withRetry(cleanupDoneJobs, 'cleanupDoneJobs');
+setInterval(() => withRetry(cleanupDoneJobs, 'cleanupDoneJobs'), DAY);
+
+setTimeout(() => {
+  withRetry(cleanupOpenJobs, 'cleanupOpenJobs');
+  setInterval(() => withRetry(cleanupOpenJobs, 'cleanupOpenJobs'), DAY);
+}, 4 * HOUR);
+
+setTimeout(() => {
+  withRetry(cleanupTakenJobs, 'cleanupTakenJobs');
+  setInterval(() => withRetry(cleanupTakenJobs, 'cleanupTakenJobs'), DAY);
+}, 8 * HOUR);
+
+setTimeout(() => {
+  withRetry(cleanupCancelledJobs, 'cleanupCancelledJobs');
+  setInterval(() => withRetry(cleanupCancelledJobs, 'cleanupCancelledJobs'), DAY);
+}, 12 * HOUR);
+
+setTimeout(() => {
+  withRetry(cleanupOrphanedPosts, 'cleanupOrphanedPosts');
+  setInterval(() => withRetry(cleanupOrphanedPosts, 'cleanupOrphanedPosts'), DAY);
+}, 16 * HOUR);
 
 // Global error handlers
 process.on('unhandledRejection', (reason, promise) => {
