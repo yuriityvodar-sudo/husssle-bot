@@ -26,6 +26,12 @@ const BOT_TOKEN  = process.env.BOT_TOKEN || 'YOUR_BOT_TOKEN_HERE';
 const CHANNEL_ID = '@husssleke';
 const ADMIN_ID   = 889114803;
 
+// Channel auto-delete window (days). MUST match the Telegram channel's
+// auto-delete setting. When the channel auto-deletes a post, this sweep
+// removes the matching job from Firestore so the DB stays in sync.
+// Change this whenever you change the channel's auto-delete setting.
+const AUTODELETE_DAYS = 3;
+
 // ─── Rate Limiter ────────────────────────────────────────────────────────────
 const userActions = {}; // { userId: { count, firstAction, lastAction, blockedUntil } }
 
@@ -3446,6 +3452,32 @@ async function cleanupOrphanedPosts() {
   }
 }
 
+// ─── Cleanup worker 6: master age sweep ───────────────────────────────────────
+// Safety net to keep Firestore in sync with the channel's auto-delete.
+// Removes ANY job whose post is older than AUTODELETE_DAYS, regardless of status,
+// since by then Telegram has already auto-deleted the channel post.
+async function cleanupOldJobs() {
+  const cutoff = Date.now() - (AUTODELETE_DAYS * 24 * 60 * 60 * 1000);
+  const snap = await db.collection('jobs').where('createdAt', '<=', cutoff).get();
+  if (snap.empty) return;
+  console.log(`🧹 Master sweep: removing ${snap.size} job(s) older than ${AUTODELETE_DAYS} days...`);
+  for (const doc of snap.docs) {
+    const job = doc.data();
+    // Try to remove the channel post (usually already auto-deleted — that's fine)
+    if (job.channelMsgId) await bot.deleteMessage(CHANNEL_ID, job.channelMsgId).catch(() => {});
+    if (job.extraChannelMsgIds && job.extraChannelMsgIds.length) {
+      for (const mid of job.extraChannelMsgIds) await bot.deleteMessage(CHANNEL_ID, mid).catch(() => {});
+    }
+    // Remove applications
+    const appsSnap = await db.collection('applications').where('jobId', '==', String(job.id)).get();
+    for (const appDoc of appsSnap.docs) await appDoc.ref.delete().catch(() => {});
+    // Remove job + channelPosts record
+    await doc.ref.delete().catch(() => {});
+    if (job.channelMsgId) await db.collection('channelPosts').doc(String(job.channelMsgId)).delete().catch(() => {});
+    console.log(`✅ Master sweep removed: ${job.title} (${job.status})`);
+  }
+}
+
 async function sendChannelWelcome() {
   try {
     const chat = await bot.getChat(CHANNEL_ID);
@@ -3525,6 +3557,11 @@ setTimeout(() => {
   withRetry(cleanupOrphanedPosts, 'cleanupOrphanedPosts');
   setInterval(() => withRetry(cleanupOrphanedPosts, 'cleanupOrphanedPosts'), DAY);
 }, 16 * HOUR);
+
+setTimeout(() => {
+  withRetry(cleanupOldJobs, 'cleanupOldJobs');
+  setInterval(() => withRetry(cleanupOldJobs, 'cleanupOldJobs'), DAY);
+}, 20 * HOUR);
 
 // Global error handlers
 process.on('unhandledRejection', (reason, promise) => {
